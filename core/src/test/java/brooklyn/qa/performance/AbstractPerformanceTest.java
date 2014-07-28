@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.qa.performance;
 
 import static org.testng.Assert.assertTrue;
@@ -12,6 +30,7 @@ import org.testng.annotations.BeforeMethod;
 import brooklyn.entity.basic.ApplicationBuilder;
 import brooklyn.entity.basic.Entities;
 import brooklyn.location.basic.SimulatedLocation;
+import brooklyn.management.ManagementContext;
 import brooklyn.test.entity.TestApplication;
 import brooklyn.util.internal.DoubleSystemProperty;
 
@@ -48,16 +67,18 @@ public class AbstractPerformanceTest {
     
     protected TestApplication app;
     protected SimulatedLocation loc;
+    protected ManagementContext mgmt;
     
     @BeforeMethod(alwaysRun=true)
-    public void setUp() {
+    public void setUp() throws Exception {
         for (int i = 0; i < 5; i++) System.gc();
         loc = new SimulatedLocation();
         app = ApplicationBuilder.newManagedApp(TestApplication.class);
+        mgmt = app.getManagementContext();
     }
     
     @AfterMethod(alwaysRun=true)
-    public void tearDown() {
+    public void tearDown() throws Exception {
         if (app != null) Entities.destroyAll(app.getManagementContext());
     }
     
@@ -87,8 +108,7 @@ public class AbstractPerformanceTest {
         long nextLogTime = logInterval;
         
         // Give it some warm-up cycles
-        Stopwatch warmupWatch = new Stopwatch();
-        warmupWatch.start();
+        Stopwatch warmupWatch = Stopwatch.createStarted();
         for (int i = 0; i < (numIterations/10); i++) {
             if (warmupWatch.elapsed(TimeUnit.MILLISECONDS) >= nextLogTime) {
                 LOG.info("Warm-up "+prefix+" iteration="+i+" at "+warmupWatch.elapsed(TimeUnit.MILLISECONDS)+"ms");
@@ -97,8 +117,7 @@ public class AbstractPerformanceTest {
             r.run();
         }
         
-        Stopwatch stopwatch = new Stopwatch();
-        stopwatch.start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         nextLogTime = 0;
         for (int i = 0; i < numIterations; i++) {
             if (stopwatch.elapsed(TimeUnit.MILLISECONDS) >= nextLogTime) {
@@ -111,8 +130,7 @@ public class AbstractPerformanceTest {
     }
     
     protected long measure(Runnable r) {
-        Stopwatch stopwatch = new Stopwatch();
-        stopwatch.start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         r.run();
         return stopwatch.elapsed(TimeUnit.MILLISECONDS);
     }

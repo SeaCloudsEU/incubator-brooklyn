@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.entity.webapp;
 
 import static org.testng.Assert.assertEquals;
@@ -183,7 +201,7 @@ public class ControlledDynamicWebAppClusterTest {
                 .configure("initialSize", 1)
                 .configure("factory", new BasicConfigurableEntityFactory<TestJavaWebAppEntity>(TestJavaWebAppEntity.class)));
         
-        RecordingSensorEventListener<Lifecycle> listener = new RecordingSensorEventListener<Lifecycle>();
+        RecordingSensorEventListener<Lifecycle> listener = new RecordingSensorEventListener<Lifecycle>(true);
         app.subscribe(cluster, Attributes.SERVICE_STATE, listener);
         app.start(locs);
 
@@ -223,11 +241,24 @@ public class ControlledDynamicWebAppClusterTest {
     public static class RecordingSensorEventListener<T> implements SensorEventListener<T> {
         private final List<SensorEvent<T>> events = Lists.newCopyOnWriteArrayList();
         private final List<T> values = Lists.newCopyOnWriteArrayList();
+        private boolean skipDuplicateValues;
 
+        public RecordingSensorEventListener() {
+            this(false);
+        }
+        
+        public RecordingSensorEventListener(boolean skipDuplicateValues) {
+            this.skipDuplicateValues = skipDuplicateValues;
+        }
+        
         @Override
         public void onEvent(SensorEvent<T> event) {
             events.add(event);
-            values.add(event.getValue());
+            if (skipDuplicateValues && !values.isEmpty() && values.get(values.size()-1).equals(event.getValue())) {
+                // skip
+            } else {
+                values.add(event.getValue());
+            }
         }
         
         public List<SensorEvent<T>> getEvents() {

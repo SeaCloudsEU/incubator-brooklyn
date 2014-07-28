@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.management.internal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -25,6 +43,7 @@ import brooklyn.entity.proxying.InternalEntityFactory;
 import brooklyn.entity.proxying.InternalLocationFactory;
 import brooklyn.entity.proxying.InternalPolicyFactory;
 import brooklyn.entity.rebind.ChangeListener;
+import brooklyn.entity.rebind.PersistenceExceptionHandler;
 import brooklyn.entity.rebind.RebindExceptionHandler;
 import brooklyn.entity.rebind.RebindManager;
 import brooklyn.internal.storage.BrooklynStorage;
@@ -44,6 +63,7 @@ import brooklyn.management.ha.HighAvailabilityMode;
 import brooklyn.management.ha.ManagementNodeState;
 import brooklyn.management.ha.ManagementPlaneSyncRecord;
 import brooklyn.management.ha.ManagementPlaneSyncRecordPersister;
+import brooklyn.management.ha.OsgiManager;
 import brooklyn.mementos.BrooklynMementoPersister;
 import brooklyn.util.guava.Maybe;
 import brooklyn.util.time.Duration;
@@ -174,6 +194,11 @@ public class NonDeploymentManagementContext implements ManagementContextInternal
     @Override
     public UsageManager getUsageManager() {
         return usageManager;
+    }
+    
+    @Override
+    public Maybe<OsgiManager> getOsgiManager() {
+        return Maybe.absent();
     }
 
     @Override
@@ -392,6 +417,11 @@ public class NonDeploymentManagementContext implements ManagementContextInternal
 
         @Override
         public void setPersister(BrooklynMementoPersister persister) {
+            throw new IllegalStateException("Non-deployment context "+NonDeploymentManagementContext.this+" is not valid for this operation.");
+        }
+
+        @Override
+        public void setPersister(BrooklynMementoPersister persister, PersistenceExceptionHandler exceptionHandler) {
             throw new IllegalStateException("Non-deployment context "+NonDeploymentManagementContext.this+" is not valid for this operation.");
         }
 

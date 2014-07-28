@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.rest.resources;
 
 import java.util.List;
@@ -28,12 +46,6 @@ import com.google.common.collect.Iterables;
 import com.sun.jersey.api.client.ClientResponse;
 import com.sun.jersey.api.client.GenericType;
 
-/**
- * Test the {@link SensorApi} implementation.
- * <p>
- * Check that {@link SensorResource} correctly renders {@link AttributeSensor}
- * values, including {@link RendererHints.DisplayValue} hints.
- */
 @Test(singleThreaded = true)
 public class EntityResourceTest extends BrooklynRestResourceTest {
 
@@ -47,12 +59,6 @@ public class EntityResourceTest extends BrooklynRestResourceTest {
 
     private static final String entityEndpoint = "/v1/applications/simple-app/entities/simple-ent";
 
-    /**
-     * Sets up the application and entity.
-     * <p>
-     * Adds a sensor and sets its value to {@code 12345}. Configures a display value
-     * hint that appends {@code frogs} to the value of the sensor.
-     */
     @BeforeClass(alwaysRun = true)
     @Override
     public void setUp() throws Exception {
@@ -69,13 +75,6 @@ public class EntityResourceTest extends BrooklynRestResourceTest {
                 return "RestMockSimpleEntity".equals(input.getEntityType().getSimpleName());
             }
         });
-    }
-
-    @AfterClass(alwaysRun = true)
-    @Override
-    public void tearDown() throws Exception {
-        TestRendererHints.clearRegistry();
-        super.tearDown();
     }
 
     @Test

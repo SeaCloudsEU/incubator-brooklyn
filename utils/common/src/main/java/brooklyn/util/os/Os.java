@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.util.os;
 
 import java.io.File;
@@ -38,6 +56,8 @@ public class Os {
 
     private static final Logger log = LoggerFactory.getLogger(Os.class);
     
+    private static final int TEMP_DIR_ATTEMPTS = 1000;
+
     private static final char SEPARATOR_UNIX = '/';
     private static final char SEPARATOR_WIN = '\\';
     
@@ -174,14 +194,17 @@ public class Os {
         return System.getProperty("user.home");
     }
 
-    /** merges paths using forward slash (unix way); see {@link Urls#mergePaths(String...)} */
+    /** merges paths using forward slash (unix way); 
+     * now identical to {@link Os#mergePaths(String...)} but kept for contexts
+     * where caller wants to indicate the target system should definitely be unix */
     public static String mergePathsUnix(String ...items) {
         return Urls.mergePaths(items);
     }
 
-    /** merges paths using the local file separator */
+    /** merges paths using forward slash as the "local OS file separator", because it is recognised on windows,
+     * making paths more consistent and avoiding problems with backslashes being escaped */
     public static String mergePaths(String ...items) {
-        char separatorChar = File.separatorChar;
+        char separatorChar = '/';
         StringBuilder result = new StringBuilder();
         for (String item: items) {
             if (Strings.isEmpty(item)) continue;
@@ -502,17 +525,14 @@ public class Os {
      * either prefix or ext may be null; 
      * if ext is non-empty and not > 4 chars and not starting with a ., then a dot will be inserted */
     public static File newTempFile(String prefix, String ext) {
-        String baseName = (prefix!=null ? prefix + "-" : "") + Identifiers.makeRandomId(4) + 
-            (ext!=null ? ext.startsWith(".") || ext.length()>4 ? ext : "."+ext : "");
-        File tempFile = new File(tmp(), baseName);
+        String sanitizedPrefix = (prefix!=null ? prefix + "-" : "");
+        String sanitizedExt = (ext!=null ? ext.startsWith(".") || ext.length()>4 ? ext : "."+ext : "");
         try {
-            if (tempFile.createNewFile()) {
-                tempFile.deleteOnExit();
-                return tempFile;
-            }
-            throw new IllegalStateException("cannot create temp file "+tempFile+", call returned false");
+            File tempFile = File.createTempFile(sanitizedPrefix, sanitizedExt, new File(tmp()));
+            tempFile.deleteOnExit();
+            return tempFile;
         } catch (IOException e) {
-            throw new IllegalStateException("cannot create temp file "+tempFile+", error: "+e, e);
+            throw Exceptions.propagate(e);
         }
     }
     
@@ -523,13 +543,27 @@ public class Os {
 
     /** creates a temp dir which will be deleted on exit */
     public static File newTempDir(String prefix) {
-        String baseName = (prefix==null ? "" : prefix + "-") + Identifiers.makeRandomId(4);
-        File tempDir = new File(tmp(), baseName);
-        if (tempDir.mkdir()) {
-            Os.deleteOnExitRecursively(tempDir);
-            return tempDir;
+        String sanitizedPrefix = (prefix==null ? "" : prefix + "-");
+        String tmpParent = tmp();
+        
+        //With lots of stale temp dirs it is possible to have 
+        //name collisions so we need to retry until a unique 
+        //name is found
+        for (int i = 0; i < TEMP_DIR_ATTEMPTS; i++) {
+            String baseName = sanitizedPrefix + Identifiers.makeRandomId(4);
+            File tempDir = new File(tmpParent, baseName);
+            if (!tempDir.exists()) {
+                if (tempDir.mkdir()) {
+                    Os.deleteOnExitRecursively(tempDir);
+                    return tempDir;
+                } else {
+                    log.warn("Attempt to create temp dir failed " + tempDir + ". Either an IO error (disk full, no rights) or someone else created the folder after the !exists() check.");
+                }
+            } else {
+                log.debug("Attempt to create temp dir failed, already exists " + tempDir + ". With ID of length 4 it is not unusual (15% chance) to have duplicate names at the 2000 samples mark.");
+            }
         }
-        throw new IllegalStateException("cannot write to temp dir, making directory "+tempDir);
+        throw new IllegalStateException("cannot create temporary folders in parent " + tmpParent + " after " + TEMP_DIR_ATTEMPTS + " attempts.");
     }
     
     /** as {@link #newTempDir(String)}, using the class as the basis for a prefix */

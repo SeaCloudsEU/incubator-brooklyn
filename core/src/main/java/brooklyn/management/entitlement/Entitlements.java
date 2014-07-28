@@ -1,26 +1,32 @@
 /*
- * Copyright 2009-2014 by Cloudsoft Corporation Limited
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package brooklyn.management.entitlement;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.annotations.Beta;
 import com.google.common.base.Objects;
+import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.reflect.TypeToken;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import brooklyn.config.BrooklynProperties;
 import brooklyn.config.ConfigKey;
@@ -29,8 +35,11 @@ import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.Entities;
 import brooklyn.util.ResourceUtils;
 import brooklyn.util.exceptions.Exceptions;
+import brooklyn.util.javalang.Reflections;
 import brooklyn.util.text.Strings;
 
+/** @since 0.7.0 */
+@Beta
 public class Entitlements {
 
     private static final Logger log = LoggerFactory.getLogger(Entitlements.class);
@@ -41,10 +50,10 @@ public class Entitlements {
     
     public static EntitlementClass<EntityAndItem<String>> SEE_SENSOR = new BasicEntitlementClassDefinition<EntityAndItem<String>>("sensor.see", EntityAndItem. typeToken(String.class));
     
-    public static EntitlementClass<EntityAndItem<String>> INVOKE_EFFECTOR = new BasicEntitlementClassDefinition<EntityAndItem<String>>("effector.invoke", EntityAndItem. typeToken(String.class));
+    public static EntitlementClass<EntityAndItem<String>> INVOKE_EFFECTOR = new BasicEntitlementClassDefinition<EntityAndItem<String>>("effector.invoke", EntityAndItem.typeToken(String.class));
     
     /** the permission to deploy an application, where parameter is some representation of the app to be deployed (spec instance or yaml plan) */
-    public static EntitlementClass<EntityAndItem<Object>> DEPLOY_APPLICATION = new BasicEntitlementClassDefinition<EntityAndItem<Object>>("app.deploy", EntityAndItem. typeToken(Object.class));
+    public static EntitlementClass<Object> DEPLOY_APPLICATION = new BasicEntitlementClassDefinition<Object>("app.deploy", Object.class);
 
     /** catch-all for catalog, locations, scripting, usage, etc; 
      * NB1: all users can see HA status;
@@ -55,6 +64,31 @@ public class Entitlements {
      * secondary check required for any operation which could potentially grant root-level access */ 
     public static EntitlementClass<Void> ROOT = new BasicEntitlementClassDefinition<Void>("root", Void.class);
 
+    public static enum EntitlementClassesEnum {
+        ENTITLEMENT_SEE_ENTITY(SEE_ENTITY),
+        ENTITLEMENT_SEE_SENSOR(SEE_SENSOR),
+        ENTITLEMENT_INVOKE_EFFECTOR(INVOKE_EFFECTOR),
+        ENTITLEMENT_DEPLOY_APPLICATION(DEPLOY_APPLICATION),
+        ENTITLEMENT_SEE_ALL_SERVER_INFO(SEE_ALL_SERVER_INFO),
+        ENTITLEMENT_ROOT(ROOT),
+        ;
+        
+        private EntitlementClass<?> entitlementClass;
+
+        private EntitlementClassesEnum(EntitlementClass<?> specificClass) {
+            this.entitlementClass = specificClass;
+        }
+        public EntitlementClass<?> getEntitlementClass() {
+            return entitlementClass;
+        }
+        
+        public static EntitlementClassesEnum of(EntitlementClass<?> entitlementClass) {
+            for (EntitlementClassesEnum x: values()) {
+                if (entitlementClass.equals(x.getEntitlementClass())) return x;
+            }
+            return null;
+        }
+    }
     
     public static class EntityAndItem<T> {
         final Entity entity;
@@ -79,6 +113,14 @@ public class Entitlements {
         }
     }
 
+    /** 
+     * These lifecycle operations are currently treated as effectors. This may change in the future.
+     * @since 0.7.0 */
+    @Beta
+    public static class LifecycleEffectors {
+        public static final String DELETE = "delete";
+    }
+    
     // ------------- permission sets -------------
     
     /** always ALLOW access to everything */
@@ -103,7 +145,7 @@ public class Entitlements {
 
     public static class FineGrainedEntitlements {
     
-        public static EntitlementManager anyOf(final EntitlementManager ...checkers) {
+        public static EntitlementManager anyOf(final EntitlementManager... checkers) {
             return new EntitlementManager() {
                 @Override
                 public <T> boolean isEntitled(EntitlementContext context, EntitlementClass<T> permission, T typeArgument) {
@@ -115,7 +157,7 @@ public class Entitlements {
             };
         }
         
-        public static EntitlementManager allOf(final EntitlementManager ...checkers) {
+        public static EntitlementManager allOf(final EntitlementManager... checkers) {
             return new EntitlementManager() {
                 @Override
                 public <T> boolean isEntitled(EntitlementContext context, EntitlementClass<T> permission, T typeArgument) {
@@ -186,6 +228,7 @@ public class Entitlements {
         EntitlementContext oldContext = PerThreadEntitlementContextHolder.perThreadEntitlementsContextHolder.get();
         if (oldContext!=null && context!=null) {
             log.warn("Changing entitlement context from "+oldContext+" to "+context+"; context should have been reset or extended, not replaced");
+            log.debug("Trace for entitlement context duplicate overwrite", new Throwable("Trace for entitlement context overwrite"));
         }
         PerThreadEntitlementContextHolder.perThreadEntitlementsContextHolder.set(context);
     }
@@ -198,22 +241,31 @@ public class Entitlements {
         return checker.isEntitled(getEntitlementContext(), permission, typeArgument);
     }
 
-    public static <T> void requireEntitled(EntitlementManager checker, EntitlementClass<T> permission, T typeArgument) {
+    /** throws {@link NotEntitledException} if entitlement not available for current {@link #getEntitlementContext()} */
+    public static <T> void checkEntitled(EntitlementManager checker, EntitlementClass<T> permission, T typeArgument) {
         if (!isEntitled(checker, permission, typeArgument)) {
             throw new NotEntitledException(getEntitlementContext(), permission, typeArgument);
         }
     }
-
+    /** throws {@link NotEntitledException} if entitlement not available for current {@link #getEntitlementContext()} 
+     * @since 0.7.0
+     * @deprecated since 0.7.0, use {@link #checkEntitled(EntitlementManager, EntitlementClass, Object)};
+     * kept briefly because there is some downstream usage*/
+    public static <T> void requireEntitled(EntitlementManager checker, EntitlementClass<T> permission, T typeArgument) {
+        checkEntitled(checker, permission, typeArgument);
+    }
+    
     // ----------------- initialization ----------------
 
     public static ConfigKey<String> GLOBAL_ENTITLEMENT_MANAGER = ConfigKeys.newStringConfigKey("brooklyn.entitlements.global", 
-        "Class for entitlements in effect globally; many instances accept further per user entitlements; "
-        + "short names 'minimal', 'readonly', or 'root' are permitted here, with the default 'root' giving full access to all declared users",
+        "Class for entitlements in effect globally; "
+        + "short names 'minimal', 'readonly', or 'root' are permitted here, with the default 'root' giving full access to all declared users; "
+        + "or supply the name of an "+EntitlementManager.class+" class to instantiate, taking a 1-arg BrooklynProperties constructor or a 0-arg constructor",
         "root");
     
     public static EntitlementManager newManager(ResourceUtils loader, BrooklynProperties brooklynProperties) {
         EntitlementManager result = newGlobalManager(loader, brooklynProperties);
-        // TODO per user settings
+        // TODO read per user settings from brooklyn.properties, if set there ?
         return result;
     }
     private static EntitlementManager newGlobalManager(ResourceUtils loader, BrooklynProperties brooklynProperties) {
@@ -223,7 +275,10 @@ public class Entitlements {
         if ("minimal".equalsIgnoreCase(type)) return new PerUserEntitlementManagerWithDefault(minimal());
         if (Strings.isNonBlank(type)) {
             try {
-                return (EntitlementManager) loader.getLoader().loadClass(type).newInstance();
+                Class<?> clazz = loader.getLoader().loadClass(type);
+                Optional<?> result = Reflections.invokeConstructorWithArgs(clazz, brooklynProperties);
+                if (result.isPresent()) return (EntitlementManager) result.get();
+                return (EntitlementManager) clazz.newInstance();
             } catch (Exception e) { throw Exceptions.propagate(e); }
         }
         throw new IllegalStateException("Invalid entitlement manager specified: '"+type+"'");

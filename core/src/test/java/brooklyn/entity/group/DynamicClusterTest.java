@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.entity.group;
 
 import static org.testng.Assert.assertEquals;
@@ -21,12 +39,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import brooklyn.entity.BrooklynAppUnitTestSupport;
 import brooklyn.entity.Entity;
-import brooklyn.entity.basic.ApplicationBuilder;
 import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.BrooklynTaskTags;
 import brooklyn.entity.basic.Entities;
@@ -39,7 +56,6 @@ import brooklyn.location.Location;
 import brooklyn.location.basic.SimulatedLocation;
 import brooklyn.management.Task;
 import brooklyn.test.Asserts;
-import brooklyn.test.entity.TestApplication;
 import brooklyn.test.entity.TestEntity;
 import brooklyn.test.entity.TestEntityImpl;
 import brooklyn.util.collections.MutableMap;
@@ -56,25 +72,20 @@ import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Atomics;
 
 
-public class DynamicClusterTest {
+public class DynamicClusterTest extends BrooklynAppUnitTestSupport {
 
     private static final int TIMEOUT_MS = 2000;
 
-    TestApplication app;
     SimulatedLocation loc;
     SimulatedLocation loc2;
     Random random = new Random();
 
-    @BeforeMethod
-    public void setUp() {
-        app = ApplicationBuilder.newManagedApp(TestApplication.class);
+    @BeforeMethod(alwaysRun=true)
+    @Override
+    public void setUp() throws Exception {
+        super.setUp();
         loc = new SimulatedLocation();
         loc2 = new SimulatedLocation();
-    }
-
-    @AfterMethod(alwaysRun = true)
-    public void tearDown(){
-        if (app != null) Entities.destroyAll(app.getManagementContext());
     }
 
     @Test
@@ -490,7 +501,7 @@ public class DynamicClusterTest {
         final List<Entity> creationOrder = Lists.newArrayList();
         DynamicCluster cluster = app.createAndManageChild(EntitySpec.create(DynamicCluster.class)
                 .configure("initialSize", 0)
-                .configure("factory", new EntityFactory() {
+                .configure("factory", new EntityFactory<Entity>() {
                     @Override public Entity newEntity(Map flags, Entity parent) {
                         Entity result = new TestEntityImpl(flags);
                         creationOrder.add(result);
@@ -499,6 +510,12 @@ public class DynamicClusterTest {
 
         cluster.start(ImmutableList.of(loc));
         cluster.resize(1);
+        
+        //Prevent the two entities created in the same ms
+        //so that the removal strategy can always choose the 
+        //entity created next
+        Thread.sleep(1);
+        
         cluster.resize(2);
         assertEquals(cluster.getCurrentSize(), (Integer)2);
         assertEquals(ImmutableSet.copyOf(cluster.getMembers()), ImmutableSet.copyOf(creationOrder), "actual="+cluster.getMembers());

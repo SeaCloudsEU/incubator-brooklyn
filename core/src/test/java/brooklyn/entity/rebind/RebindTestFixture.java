@@ -1,7 +1,27 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.entity.rebind;
 
 import java.io.File;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 
@@ -14,12 +34,15 @@ import brooklyn.internal.BrooklynFeatureEnablement;
 import brooklyn.management.ManagementContext;
 import brooklyn.management.ha.HighAvailabilityMode;
 import brooklyn.management.internal.LocalManagementContext;
+import brooklyn.management.internal.ManagementContextInternal;
 import brooklyn.mementos.BrooklynMementoManifest;
 import brooklyn.test.entity.LocalManagementContextForTests;
 import brooklyn.util.os.Os;
 import brooklyn.util.time.Duration;
 
 public abstract class RebindTestFixture<T extends StartableApplication> {
+
+    private static final Logger LOG = LoggerFactory.getLogger(RebindTestFixture.class);
 
     protected static final Duration TIMEOUT_MS = Duration.TEN_SECONDS;
 
@@ -31,17 +54,21 @@ public abstract class RebindTestFixture<T extends StartableApplication> {
     protected T newApp;
     protected ManagementContext newManagementContext;
 
-    private boolean origPolicyPersistenceEnabled;
-    private boolean origEnricherPersistenceEnabled;
-    
     @BeforeMethod(alwaysRun=true)
     public void setUp() throws Exception {
-        origPolicyPersistenceEnabled = BrooklynFeatureEnablement.enable(BrooklynFeatureEnablement.FEATURE_POLICY_PERSISTENCE_PROPERTY);
-        origEnricherPersistenceEnabled = BrooklynFeatureEnablement.enable(BrooklynFeatureEnablement.FEATURE_ENRICHER_PERSISTENCE_PROPERTY);
-        
         mementoDir = Os.newTempDir(getClass());
-        origManagementContext = RebindTestUtils.newPersistingManagementContext(mementoDir, classLoader, 1);
+        origManagementContext = createOrigManagementContext();
         origApp = createApp();
+        
+        LOG.info("Test "+getClass()+" persisting to "+mementoDir);
+    }
+
+    protected LocalManagementContext createOrigManagementContext() {
+        return RebindTestUtils.newPersistingManagementContext(mementoDir, classLoader, getPersistPeriodMillis());
+    }
+    
+    protected int getPersistPeriodMillis() {
+        return 1;
     }
     
     /** optionally, create the app as part of every test; can be no-op if tests wish to set origApp themselves */
@@ -49,21 +76,16 @@ public abstract class RebindTestFixture<T extends StartableApplication> {
 
     @AfterMethod(alwaysRun=true)
     public void tearDown() throws Exception {
-        try {
-            if (origApp != null) Entities.destroyAll(origApp.getManagementContext());
-            if (newApp != null) Entities.destroyAll(newApp.getManagementContext());
-            if (newManagementContext != null) Entities.destroyAll(newManagementContext);
-            origApp = null;
-            newApp = null;
-            newManagementContext = null;
-    
-            if (origManagementContext != null) Entities.destroyAll(origManagementContext);
-            if (mementoDir != null) FileBasedObjectStore.deleteCompletely(mementoDir);
-            origManagementContext = null;
-        } finally {
-            BrooklynFeatureEnablement.setEnablement(BrooklynFeatureEnablement.FEATURE_POLICY_PERSISTENCE_PROPERTY, origPolicyPersistenceEnabled);
-            BrooklynFeatureEnablement.setEnablement(BrooklynFeatureEnablement.FEATURE_ENRICHER_PERSISTENCE_PROPERTY, origEnricherPersistenceEnabled);
-        }
+        if (origApp != null) Entities.destroyAll(origApp.getManagementContext());
+        if (newApp != null) Entities.destroyAll(newApp.getManagementContext());
+        if (newManagementContext != null) Entities.destroyAll(newManagementContext);
+        origApp = null;
+        newApp = null;
+        newManagementContext = null;
+
+        if (origManagementContext != null) Entities.destroyAll(origManagementContext);
+        if (mementoDir != null) FileBasedObjectStore.deleteCompletely(mementoDir);
+        origManagementContext = null;
     }
 
     /** rebinds, and sets newApp */
@@ -108,10 +130,13 @@ public abstract class RebindTestFixture<T extends StartableApplication> {
         FileBasedObjectStore objectStore = new FileBasedObjectStore(mementoDir);
         objectStore.injectManagementContext(newManagementContext);
         objectStore.prepareForSharedUse(PersistMode.AUTO, HighAvailabilityMode.DISABLED);
-        BrooklynMementoPersisterToObjectStore persister = new BrooklynMementoPersisterToObjectStore(objectStore, classLoader);
+        BrooklynMementoPersisterToObjectStore persister = new BrooklynMementoPersisterToObjectStore(
+                objectStore,
+                ((ManagementContextInternal)newManagementContext).getBrooklynProperties(),
+                classLoader);
         RebindExceptionHandler exceptionHandler = new RecordingRebindExceptionHandler(RebindManager.RebindFailureMode.FAIL_AT_END, RebindManager.RebindFailureMode.FAIL_AT_END);
         BrooklynMementoManifest mementoManifest = persister.loadMementoManifest(exceptionHandler);
-        persister.stop();
+        persister.stop(false);
         return mementoManifest;
     }
 }

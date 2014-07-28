@@ -1,6 +1,27 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.internal;
 
 import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Maps;
 
@@ -14,6 +35,8 @@ import com.google.common.collect.Maps;
  */
 public class BrooklynFeatureEnablement {
 
+    private static final Logger LOG = LoggerFactory.getLogger(BrooklynFeatureEnablement.class);
+
     public static final String FEATURE_POLICY_PERSISTENCE_PROPERTY = "brooklyn.experimental.feature.policyPersistence";
     
     public static final String FEATURE_ENRICHER_PERSISTENCE_PROPERTY = "brooklyn.experimental.feature.enricherPersistence";
@@ -22,11 +45,17 @@ public class BrooklynFeatureEnablement {
 
     private static final Object MUTEX = new Object();
     
-    static {
+    static void setDefaults() {
         // Idea is here one can put experimental features that are *enabled* by default, but 
-        // that can be turned off via system properties. One might want to do that because
-        // the feature is deemed risky!
-        //   e.g. setDefault(ENABLE_POLICY_PERSISTENCE_PROPERTY, true);
+        // that can be turned off via system properties, or vice versa.
+        // Typically this is useful where a feature is deemed risky!
+        
+        setDefault(FEATURE_POLICY_PERSISTENCE_PROPERTY, true);
+        setDefault(FEATURE_ENRICHER_PERSISTENCE_PROPERTY, true);
+    }
+    
+    static {
+        setDefaults();
     }
     
     public static boolean isEnabled(String property) {
@@ -62,6 +91,9 @@ public class BrooklynFeatureEnablement {
                 String rawVal = System.getProperty(property);
                 if (rawVal == null) {
                     FEATURE_ENABLEMENTS.put(property, val);
+                    LOG.debug("Default enablement of "+property+" set to "+val);
+                } else {
+                    LOG.debug("Not setting default enablement of "+property+" to "+val+", because system property is "+rawVal);
                 }
             }
         }
@@ -70,6 +102,7 @@ public class BrooklynFeatureEnablement {
     static void clearCache() {
         synchronized (MUTEX) {
             FEATURE_ENABLEMENTS.clear();
+            setDefaults();
         }
     }
 }

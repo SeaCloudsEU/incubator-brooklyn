@@ -1,8 +1,32 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.rest.domain;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.Status;
+
 import org.codehaus.jackson.annotate.JsonProperty;
+import org.codehaus.jackson.map.annotate.JsonSerialize;
+import org.codehaus.jackson.map.annotate.JsonSerialize.Inclusion;
 
 import brooklyn.util.text.Strings;
 
@@ -58,6 +82,11 @@ public class ApiError {
             return this;
         }
 
+        /** as {@link #prefixMessage(String, String)} with default separator of `: ` */
+        public Builder prefixMessage(String prefix) {
+            return prefixMessage(prefix, ": ");
+        }
+        
         /** puts a prefix in front of the message, with the given separator if there is already a message;
          * if there is no message, it simply sets the prefix as the message
          */
@@ -89,6 +118,8 @@ public class ApiError {
     }
 
     private final String message;
+    
+    @JsonSerialize(include=Inclusion.NON_EMPTY)
     private final String details;
 
     public ApiError(
@@ -126,5 +157,16 @@ public class ApiError {
                 .add("message", message)
                 .add("details", details)
                 .toString();
+    }
+
+    public Response asBadRequestResponseJson() {
+        return asResponse(Status.BAD_REQUEST, MediaType.APPLICATION_JSON_TYPE);
+    }
+
+    public Response asResponse(Status status, MediaType type) {
+        return Response.status(status)
+            .type(type)
+            .entity(this)
+            .build();
     }
 }

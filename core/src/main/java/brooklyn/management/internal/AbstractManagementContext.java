@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.management.internal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -19,7 +37,7 @@ import org.slf4j.LoggerFactory;
 import brooklyn.catalog.BrooklynCatalog;
 import brooklyn.catalog.internal.BasicBrooklynCatalog;
 import brooklyn.catalog.internal.CatalogClasspathDo.CatalogScanningModes;
-import brooklyn.catalog.internal.CatalogDtoUtils;
+import brooklyn.catalog.internal.CatalogDto;
 import brooklyn.config.BrooklynProperties;
 import brooklyn.config.StringConfigMap;
 import brooklyn.entity.Effector;
@@ -40,8 +58,11 @@ import brooklyn.internal.storage.impl.inmemory.InMemoryDataGridFactory;
 import brooklyn.location.LocationRegistry;
 import brooklyn.location.basic.BasicLocationRegistry;
 import brooklyn.management.ExecutionContext;
+import brooklyn.management.ManagementContext;
 import brooklyn.management.SubscriptionContext;
 import brooklyn.management.Task;
+import brooklyn.management.classloading.BrooklynClassLoadingContext;
+import brooklyn.management.classloading.JavaBrooklynClassLoadingContext;
 import brooklyn.management.entitlement.EntitlementManager;
 import brooklyn.management.entitlement.Entitlements;
 import brooklyn.management.ha.HighAvailabilityManager;
@@ -60,7 +81,7 @@ import com.google.common.base.Throwables;
 public abstract class AbstractManagementContext implements ManagementContextInternal {
     private static final Logger log = LoggerFactory.getLogger(AbstractManagementContext.class);
 
-    private static DataGridFactory loadDataGridFactory(BrooklynProperties properties){
+    private static DataGridFactory loadDataGridFactory(BrooklynProperties properties) {
         String clazzName = properties.getFirst(DataGridFactory.class.getName());
         if(clazzName == null){
             clazzName = InMemoryDataGridFactory.class.getName();
@@ -93,15 +114,17 @@ public abstract class AbstractManagementContext implements ManagementContextInte
     static {
         // ensure that if ResourceUtils is given an entity as context,
         // we use the catalog class loader (e.g. to resolve classpath URLs)
-        ResourceUtils.addClassLoaderProvider(new Function<Object, ClassLoader>() {
+        ResourceUtils.addClassLoaderProvider(new Function<Object, BrooklynClassLoadingContext>() {
             @Override
-            public ClassLoader apply(@Nullable Object input) {
+            public BrooklynClassLoadingContext apply(@Nullable Object input) {
+                // TODO for entities, this should get its originating catalog item's loader
                 if (input instanceof EntityInternal)
                     return apply(((EntityInternal)input).getManagementSupport());
+                
                 if (input instanceof EntityManagementSupport)
                     return apply(((EntityManagementSupport)input).getManagementContext());
-                if (input instanceof AbstractManagementContext)
-                    return ((AbstractManagementContext)input).getCatalog().getRootClassLoader();
+                if (input instanceof ManagementContext)
+                    return JavaBrooklynClassLoadingContext.newDefault((ManagementContext) input);
                 return null;
             }
         });
@@ -267,7 +290,7 @@ public abstract class AbstractManagementContext implements ManagementContextInte
      * Returns the actual task (if it is local) or a proxy task (if it is remote);
      * if management for the entity has not yet started this may start it.
      * 
-     * @deprecated since 0.6.0 use effectors (or support {@link #runAtEntity(Entity, Task)} if something else is needed);
+     * @deprecated since 0.6.0 use effectors (or support {@code runAtEntity(Entity, Task)} if something else is needed);
      * (Callable with Map flags is too open-ended, bothersome to support, and not used much) 
      */
     @Deprecated
@@ -311,9 +334,9 @@ public abstract class AbstractManagementContext implements ManagementContextInte
         
         try {
             if (!Strings.isEmpty(catalogUrl)) {
-                catalog = new BasicBrooklynCatalog(this, CatalogDtoUtils.newDtoFromUrl(catalogUrl));
+                catalog = new BasicBrooklynCatalog(this, CatalogDto.newDtoFromUrl(catalogUrl));
                 if (log.isDebugEnabled())
-                    log.debug("Loaded catalog from "+catalogUrl+": "+catalog);
+                    log.debug("Loading catalog from "+catalogUrl+": "+catalog);
             }
         } catch (Exception e) {
             if (Throwables.getRootCause(e) instanceof FileNotFoundException) {
@@ -322,7 +345,7 @@ public abstract class AbstractManagementContext implements ManagementContextInte
                     log.warn("Could not find catalog XML specified at "+nonDefaultUrl+"; using default (local classpath) catalog. Error was: "+e);
                 } else {
                     if (log.isDebugEnabled())
-                        log.debug("No default catalog file available; trying again using local classpath to populate catalog. Error was: "+e);
+                        log.debug("No default catalog file available at "+catalogUrl+"; trying again using local classpath to populate catalog. Error was: "+e);
                 }
             } else {
                 log.warn("Error importing catalog XML at "+catalogUrl+"; using default (local classpath) catalog. Error was: "+e, e);                
@@ -330,11 +353,11 @@ public abstract class AbstractManagementContext implements ManagementContextInte
         }
         if (catalog==null) {
             // retry, either an error, or was blank
-            catalog = new BasicBrooklynCatalog(this, CatalogDtoUtils.newDefaultLocalScanningDto(CatalogScanningModes.ANNOTATIONS));
+            catalog = new BasicBrooklynCatalog(this, CatalogDto.newDefaultLocalScanningDto(CatalogScanningModes.ANNOTATIONS));
             if (log.isDebugEnabled())
                 log.debug("Loaded default (local classpath) catalog: "+catalog);
         }
-        catalog.getCatalog().load(this, null);
+        catalog.load();
         
         this.catalog = catalog;
     }

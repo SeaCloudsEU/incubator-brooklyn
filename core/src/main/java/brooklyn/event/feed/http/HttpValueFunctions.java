@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.event.feed.http;
 
 import java.util.List;
@@ -24,7 +42,7 @@ public class HttpValueFunctions {
     }
 
     public static Function<HttpToolResponse, Boolean> responseCodeEquals(final int expected) {
-        return chain(HttpValueFunctions.responseCode(), Functions.forPredicate(Predicates.equalTo(expected)));
+        return Functionals.chain(HttpValueFunctions.responseCode(), Functions.forPredicate(Predicates.equalTo(expected)));
     }
     
     public static Function<HttpToolResponse, Boolean> responseCodeEquals(final int... expected) {
@@ -32,7 +50,7 @@ public class HttpValueFunctions {
         for (int e : expected) {
             expectedList.add((Integer)e);
         }
-        return chain(HttpValueFunctions.responseCode(), Functions.forPredicate(Predicates.in(expectedList)));
+        return Functionals.chain(HttpValueFunctions.responseCode(), Functions.forPredicate(Predicates.in(expectedList)));
     }
     
     public static Function<HttpToolResponse, String> stringContentsFunction() {
@@ -44,7 +62,7 @@ public class HttpValueFunctions {
     }
     
     public static Function<HttpToolResponse, JsonElement> jsonContents() {
-        return chain(stringContentsFunction(), JsonFunctions.asJson());
+        return Functionals.chain(stringContentsFunction(), JsonFunctions.asJson());
     }
     
     public static <T> Function<HttpToolResponse, T> jsonContents(String element, Class<T> expected) {
@@ -52,7 +70,11 @@ public class HttpValueFunctions {
     }
     
     public static <T> Function<HttpToolResponse, T> jsonContents(String[] elements, Class<T> expected) {
-        return chain(jsonContents(), JsonFunctions.walk(elements), JsonFunctions.cast(expected));
+        return Functionals.chain(jsonContents(), JsonFunctions.walk(elements), JsonFunctions.cast(expected));
+    }
+
+    public static <T> Function<HttpToolResponse, T> jsonContentsFromPath(String path){
+        return Functionals.chain(jsonContents(), JsonFunctions.<T>getPath(path));
     }
     
     public static Function<HttpToolResponse, Long> latency() {

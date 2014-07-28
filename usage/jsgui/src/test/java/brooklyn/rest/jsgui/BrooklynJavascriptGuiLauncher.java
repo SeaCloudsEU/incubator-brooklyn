@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.rest.jsgui;
 
 import java.net.InetSocketAddress;
@@ -11,7 +29,19 @@ import brooklyn.rest.BrooklynRestApiLauncher;
 import brooklyn.util.net.Networking;
 
 /** launches Javascript GUI programmatically. and used for tests.
- * see {@link BrooklynRestApiLauncher} for more information. */
+ * see {@link BrooklynRestApiLauncher} for more information.
+ *
+ * WINDOWS tips:
+ * On Windows Jetty will lock all static files preventing any changes on them.
+ * To work around the problem and tell Jetty not to lock files:
+ * <ul>
+ *   <li>find jetty-webapp-&lt;ver&gt;.jar from your classpath
+ *   <li>extract the file webdefault.xml from folder org/eclipse/jetty/webapp (On Eclipse
+ *      just expanding the jar from the dependencies, right click/copy on the file.)
+ *   <li>in this project create a java package org.eclipse.jetty.webapp and put the webdefault.html file in it
+ *   <li>edit the file and change the property useFileMappedBuffer to false
+ * </ul> 
+ **/
 public class BrooklynJavascriptGuiLauncher {
 
     private static final Logger log = LoggerFactory.getLogger(BrooklynJavascriptGuiLauncher.class);

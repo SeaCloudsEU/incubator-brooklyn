@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.entity.brooklynnode;
 
 import java.net.URI;
@@ -148,6 +166,7 @@ public interface BrooklynNode extends SoftwareProcess, UsesJava {
     public static final ConfigKey<String> BROOKLYN_CATALOG_CONTENTS = ConfigKeys.newStringConfigKey(
             "brooklynnode.brooklyncatalog.contents", "Contents for the brooklyn catalog.xml file (to upload to ~/.brooklyn/catalog.xml", null);
 
+    @SuppressWarnings({ "rawtypes", "unchecked" })
     @SetFromFlag("enabledHttpProtocols")
     public static final BasicAttributeSensorAndConfigKey<List<String>> ENABLED_HTTP_PROTOCOLS = new BasicAttributeSensorAndConfigKey(
             List.class, "brooklynnode.webconsole.enabledHttpProtocols", "List of enabled protocols (e.g. http, https)", ImmutableList.of("http"));
@@ -168,10 +187,12 @@ public interface BrooklynNode extends SoftwareProcess, UsesJava {
     public static final BasicAttributeSensorAndConfigKey<String> WEB_CONSOLE_BIND_ADDRESS = new BasicAttributeSensorAndConfigKey<String>(
             String.class, "brooklynnode.webconsole.bindAddress", "Specifies the IP address of the NIC to bind the Brooklyn Management Console to", null);
 
+    @SuppressWarnings({ "rawtypes", "unchecked" })
     @SetFromFlag("classpath")
     public static final BasicAttributeSensorAndConfigKey<List<String>> CLASSPATH = new BasicAttributeSensorAndConfigKey(
             List.class, "brooklynnode.classpath", "classpath to use, as list of URL entries", Lists.newArrayList());
 
+    @SuppressWarnings({ "rawtypes", "unchecked" })
     @SetFromFlag("portMapper")
     public static final ConfigKey<Function<? super Integer, ? extends Integer>> PORT_MAPPER = (ConfigKey) ConfigKeys.newConfigKey(Function.class,
             "brooklynnode.webconsole.portMapper", "Function for mapping private to public ports, for use in inferring the brooklyn URI", Functions.<Integer>identity());

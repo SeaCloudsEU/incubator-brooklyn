@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.util.time;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -117,7 +135,13 @@ public class Duration implements Comparable<Duration>, Serializable {
 
     /** see {@link #of(Object)} and {@link Time#parseTimeString(String)} */
     public static Duration parse(String textualDescription) {
+        if (textualDescription==null) return null;
         if ("null".equalsIgnoreCase(textualDescription)) return null;
+        
+        if ("forever".equalsIgnoreCase(textualDescription)) return Duration.PRACTICALLY_FOREVER;
+        if ("practicallyforever".equalsIgnoreCase(textualDescription)) return Duration.PRACTICALLY_FOREVER;
+        if ("practically_forever".equalsIgnoreCase(textualDescription)) return Duration.PRACTICALLY_FOREVER;
+        
         return new Duration(Time.parseTimeString(textualDescription), TimeUnit.MILLISECONDS);
     }
 

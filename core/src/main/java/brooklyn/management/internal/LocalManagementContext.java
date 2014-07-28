@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.management.internal;
 
 import static brooklyn.util.JavaGroovyEquivalents.elvis;
@@ -34,7 +52,9 @@ import brooklyn.management.ExecutionManager;
 import brooklyn.management.ManagementContext;
 import brooklyn.management.SubscriptionManager;
 import brooklyn.management.Task;
+import brooklyn.management.ha.OsgiManager;
 import brooklyn.util.exceptions.Exceptions;
+import brooklyn.util.guava.Maybe;
 import brooklyn.util.task.BasicExecutionContext;
 import brooklyn.util.task.BasicExecutionManager;
 import brooklyn.util.text.Strings;
@@ -99,6 +119,7 @@ public class LocalManagementContext extends AbstractManagementContext {
     private final LocalLocationManager locationManager;
     private final LocalAccessManager accessManager;
     private final LocalUsageManager usageManager;
+    private OsgiManager osgiManager;
     
     public final Throwable constructionStackTrace = new Throwable("for construction stacktrace").fillInStackTrace();
     
@@ -159,6 +180,11 @@ public class LocalManagementContext extends AbstractManagementContext {
         this.locationManager = new LocalLocationManager(this);
         this.accessManager = new LocalAccessManager();
         this.usageManager = new LocalUsageManager(this);
+        
+        if (configMap.getConfig(OsgiManager.USE_OSGI)) {
+            this.osgiManager = new OsgiManager();
+            osgiManager.start();
+        }
         
         INSTANCES.add(this);
         log.debug("Created management context "+this);
@@ -246,6 +272,12 @@ public class LocalManagementContext extends AbstractManagementContext {
         if (!isRunning()) throw new IllegalStateException("Management context no longer running");
         return usageManager;
     }
+    
+    @Override
+    public synchronized Maybe<OsgiManager> getOsgiManager() {
+        if (!isRunning()) throw new IllegalStateException("Management context no longer running");
+        return Maybe.of(osgiManager);
+    }
 
     @Override
     public synchronized AccessController getAccessController() {
@@ -277,6 +309,10 @@ public class LocalManagementContext extends AbstractManagementContext {
     public void terminate() {
         INSTANCES.remove(this);
         super.terminate();
+        if (osgiManager!=null) {
+            osgiManager.stop();
+            osgiManager = null;
+        }
         if (execution != null) execution.shutdownNow();
         if (gc != null) gc.shutdownNow();
     }

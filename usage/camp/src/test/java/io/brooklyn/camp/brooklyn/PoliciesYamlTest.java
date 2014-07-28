@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package io.brooklyn.camp.brooklyn;
 
 import java.util.Map;
@@ -29,7 +47,7 @@ public class PoliciesYamlTest extends AbstractYamlTest {
 
     @Test
     public void testWithAppPolicy() throws Exception {
-        Entity app = createAndStartApplication("test-app-with-policy.yaml");
+        Entity app = createAndStartApplication(loadYaml("test-app-with-policy.yaml"));
         waitForApplicationTasks(app);
         Assert.assertEquals(app.getDisplayName(), "test-app-with-policy");
 
@@ -49,7 +67,7 @@ public class PoliciesYamlTest extends AbstractYamlTest {
     
     @Test
     public void testWithEntityPolicy() throws Exception {
-        Entity app = createAndStartApplication("test-entity-with-policy.yaml");
+        Entity app = createAndStartApplication(loadYaml("test-entity-with-policy.yaml"));
         waitForApplicationTasks(app);
         Assert.assertEquals(app.getDisplayName(), "test-entity-with-policy");
 
@@ -72,7 +90,7 @@ public class PoliciesYamlTest extends AbstractYamlTest {
     
     @Test
     public void testChildWithPolicy() throws Exception {
-        Entity app = createAndStartApplication("test-entity-basic-template.yaml",
+        Entity app = createAndStartApplication(loadYaml("test-entity-basic-template.yaml",
                     "  brooklyn.config:",
                     "    test.confName: parent entity",
                     "  brooklyn.children:",
@@ -82,7 +100,7 @@ public class PoliciesYamlTest extends AbstractYamlTest {
                     "    - policyType: brooklyn.test.policy.TestPolicy",
                     "      brooklyn.config:",
                     "        test.confName: Name from YAML",
-                    "        test.attributeSensor: $brooklyn:sensor(\"brooklyn.test.entity.TestEntity\", \"test.name\")");
+                    "        test.attributeSensor: $brooklyn:sensor(\"brooklyn.test.entity.TestEntity\", \"test.name\")"));
         waitForApplicationTasks(app);
 
         Assert.assertEquals(app.getChildren().size(), 1);
@@ -108,7 +126,7 @@ public class PoliciesYamlTest extends AbstractYamlTest {
     
     @Test
     public void testMultiplePolicyReferences() throws Exception {
-        final Entity app = createAndStartApplication("test-referencing-policies.yaml");
+        final Entity app = createAndStartApplication(loadYaml("test-referencing-policies.yaml"));
         waitForApplicationTasks(app);
         Assert.assertEquals(app.getDisplayName(), "test-referencing-policies");
         

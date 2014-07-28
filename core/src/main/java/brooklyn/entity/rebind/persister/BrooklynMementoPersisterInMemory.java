@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.entity.rebind.persister;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -13,6 +31,8 @@ import java.util.concurrent.TimeoutException;
 import brooklyn.entity.Entity;
 import brooklyn.entity.basic.EntityInternal;
 import brooklyn.entity.proxying.EntityProxy;
+import brooklyn.entity.rebind.PersistenceExceptionHandler;
+import brooklyn.entity.rebind.PersistenceExceptionHandlerImpl;
 import brooklyn.entity.rebind.RebindExceptionHandler;
 import brooklyn.entity.rebind.RebindExceptionHandlerImpl;
 import brooklyn.entity.rebind.RebindManager;
@@ -69,14 +89,14 @@ public class BrooklynMementoPersisterInMemory extends AbstractBrooklynMementoPer
     }
 
     @Override
-    public void checkpoint(BrooklynMemento newMemento) {
-        super.checkpoint(newMemento);
+    public void checkpoint(BrooklynMemento newMemento, PersistenceExceptionHandler exceptionHandler) {
+        super.checkpoint(newMemento, exceptionHandler);
         if (checkPersistable) reserializeMemento();
     }
 
     @Override
-    public void delta(Delta delta) {
-        super.delta(delta);
+    public void delta(Delta delta, PersistenceExceptionHandler exceptionHandler) {
+        super.delta(delta, exceptionHandler);
         if (checkPersistable) reserializeMemento();
     }
     
@@ -87,9 +107,13 @@ public class BrooklynMementoPersisterInMemory extends AbstractBrooklynMementoPer
             try {
                 // TODO Duplicate code for LookupContext in RebindManager
                 BrooklynMementoPersisterToMultiFile persister = new BrooklynMementoPersisterToMultiFile(tempDir , classLoader);
-                RebindExceptionHandler exceptionHandler = new RebindExceptionHandlerImpl(RebindManager.RebindFailureMode.FAIL_AT_END, RebindManager.RebindFailureMode.FAIL_AT_END);
-                persister.checkpoint(memento);
-                final BrooklynMementoManifest manifest = persister.loadMementoManifest(exceptionHandler);
+                RebindExceptionHandler rebindExceptionHandler = RebindExceptionHandlerImpl.builder()
+                        .danglingRefFailureMode(RebindManager.RebindFailureMode.FAIL_AT_END)
+                        .rebindFailureMode(RebindManager.RebindFailureMode.FAIL_AT_END)
+                        .build();
+                PersistenceExceptionHandler persistenceExceptionHandler = PersistenceExceptionHandlerImpl.builder().build();
+                persister.checkpoint(memento, persistenceExceptionHandler);
+                final BrooklynMementoManifest manifest = persister.loadMementoManifest(rebindExceptionHandler);
                 LookupContext dummyLookupContext = new LookupContext() {
                     @Override
                     public ManagementContext lookupManagementContext() {
@@ -144,7 +168,7 @@ public class BrooklynMementoPersisterInMemory extends AbstractBrooklynMementoPer
                 };
 
                 // Not actually reconstituting, because need to use a real lookupContext to reconstitute all the entities
-                persister.loadMemento(dummyLookupContext, exceptionHandler);
+                persister.loadMemento(dummyLookupContext, rebindExceptionHandler);
             } finally {
                 Os.deleteRecursively(tempDir);
             }

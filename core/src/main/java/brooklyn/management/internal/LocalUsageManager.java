@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.management.internal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -51,7 +69,7 @@ public class LocalUsageManager implements UsageManager {
 
     @Override
     public void recordApplicationEvent(Application app, Lifecycle state) {
-        log.debug("Storing location lifecycle event: application {} in state {};", new Object[] {app, state});
+        log.debug("Storing application lifecycle usage event: application {} in state {}", new Object[] {app, state});
         ConcurrentMap<String, ApplicationUsage> eventMap = managementContext.getStorage().getMap(APPLICATION_USAGE_KEY);
         synchronized (mutex) {
             ApplicationUsage usage = eventMap.get(app.getId());
@@ -82,18 +100,18 @@ public class LocalUsageManager implements UsageManager {
         checkNotNull(loc, "location");
         checkNotNull(state, "state of location %s", loc);
         if (loc.getId() == null) {
-            log.error("Ignoring location lifecycle event for {} (state {}), because location has no id", loc, state);
+            log.error("Ignoring location lifecycle usage event for {} (state {}), because location has no id", loc, state);
             return;
         }
         if (managementContext.getStorage() == null) {
-            log.warn("Cannot store location lifecycle event for {} (state {}), because storage not available", loc, state);
+            log.warn("Cannot store location lifecycle usage event for {} (state {}), because storage not available", loc, state);
             return;
         }
         
         Object callerContext = loc.getConfig(LocationConfigKeys.CALLER_CONTEXT);
         
         if (callerContext != null && callerContext instanceof Entity) {
-            log.debug("Storing location lifecycle event: location {} in state {}; caller context {}", new Object[] {loc, state, callerContext});
+            log.debug("Storing location lifecycle usage event: location {} in state {}; caller context {}", new Object[] {loc, state, callerContext});
             
             Entity caller = (Entity) callerContext;
             String entityTypeName = caller.getEntityType().getName();
@@ -110,7 +128,8 @@ public class LocalUsageManager implements UsageManager {
                 usageMap.put(loc.getId(), usage);
             }
         } else {
-            log.debug("Not recording location-event for {} in state {}, because no caller context", new Object[] {loc, state});
+            // normal for high-level locations
+            log.trace("Not recording location lifecycle usage event for {} in state {}, because no caller context", new Object[] {loc, state});
         }
     }
 

@@ -1,9 +1,25 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.rest.util;
 
 import static brooklyn.rest.util.WebResourceUtils.notFound;
 import static com.google.common.collect.Iterables.transform;
-
-import brooklyn.management.entitlement.Entitlements;
 import groovy.lang.GroovyClassLoader;
 
 import java.lang.reflect.Constructor;
@@ -40,6 +56,7 @@ import brooklyn.location.Location;
 import brooklyn.location.LocationRegistry;
 import brooklyn.management.ManagementContext;
 import brooklyn.management.Task;
+import brooklyn.management.entitlement.Entitlements;
 import brooklyn.policy.Policy;
 import brooklyn.policy.basic.AbstractPolicy;
 import brooklyn.rest.domain.ApplicationSpec;
@@ -80,7 +97,7 @@ public class BrooklynRestResourceUtils {
     }
 
     /** finds the policy indicated by the given ID or name.
-     * @see {@link getEntity(String,String)}; it then searches the policies of that
+     * @see {@link #getEntity(String,String)}; it then searches the policies of that
      * entity for one whose ID or name matches that given.
      * <p>
      * 
@@ -90,7 +107,7 @@ public class BrooklynRestResourceUtils {
     }
 
     /** finds the policy indicated by the given ID or name.
-     * @see {@link getPolicy(String,String,String)}.
+     * @see {@link #getPolicy(String,String,String)}.
      * <p>
      * 
      * @throws 404 or 412 (unless input is null in which case output is null) */
@@ -118,13 +135,19 @@ public class BrooklynRestResourceUtils {
         if (entity==null) return null;
         Application app = application!=null ? getApplication(application) : null;
         EntityLocal e = (EntityLocal) mgmt.getEntityManager().getEntity(entity);
+        
         if (e!=null) {
+            if (!Entitlements.isEntitled(mgmt.getEntitlementManager(), Entitlements.SEE_ENTITY, e)) {
+                throw WebResourceUtils.notFound("Cannot find entity '%s': no known ID and application not supplied for searching", entity);
+            }
+            
             if (app==null || app.equals(findTopLevelApplication(e))) return e;
             throw WebResourceUtils.preconditionFailed("Application '%s' specified does not match application '%s' to which entity '%s' (%s) is associated", 
                     application, e.getApplication().getId(), entity, e);
         }
         if (application==null)
             throw WebResourceUtils.notFound("Cannot find entity '%s': no known ID and application not supplied for searching", entity);
+        
         assert app!=null : "null app should not be returned from getApplication";
         e = searchForEntityNamed(app, entity);
         if (e!=null) return e;
@@ -146,20 +169,21 @@ public class BrooklynRestResourceUtils {
 
     /** looks for the given application instance, first by ID then by name
      * 
-     * @throws 404 if not found
+     * @throws 404 if not found, or not entitled
      */
     public Application getApplication(String application) {
         Entity e = mgmt.getEntityManager().getEntity(application);
-        if (Entitlements.isEntitled(mgmt.getEntitlementManager(), Entitlements.SEE_ENTITY, e)) {
-            if (e != null && e instanceof Application) return (Application) e;
-            for (Application app : mgmt.getApplications()) {
-                if (app.getId().equals(application)) return app;
-                if (application.equalsIgnoreCase(app.getDisplayName())) return app;
-            }
+        if (!Entitlements.isEntitled(mgmt.getEntitlementManager(), Entitlements.SEE_ENTITY, e)) {
             throw notFound("Application '%s' not found", application);
         }
-        throw WebResourceUtils.unauthorized("User '%s' is not authorized to get application '%s'",
-                    Entitlements.getEntitlementContext().user(), e);
+        
+        if (e != null && e instanceof Application) return (Application) e;
+        for (Application app : mgmt.getApplications()) {
+            if (app.getId().equals(application)) return app;
+            if (application.equalsIgnoreCase(app.getDisplayName())) return app;
+        }
+        
+        throw notFound("Application '%s' not found", application);
     }
 
     /** walks the hierarchy (depth-first) at root (often an Application) looking for
@@ -177,6 +201,11 @@ public class BrooklynRestResourceUtils {
     @SuppressWarnings("unchecked")
     public Application create(ApplicationSpec spec) {
         log.debug("REST creating application instance for {}", spec);
+        
+        if (!Entitlements.isEntitled(mgmt.getEntitlementManager(), Entitlements.DEPLOY_APPLICATION, spec)) {
+            throw WebResourceUtils.unauthorized("User '%s' is not authorized to deploy application %s",
+                Entitlements.getEntitlementContext().user(), spec);
+        }
         
         final String type = spec.getType();
         final String name = spec.getName();
@@ -334,7 +363,7 @@ public class BrooklynRestResourceUtils {
 
     protected Map<?, ?> getRenderingConfigurationFor(String catalogId) {
         MutableMap<Object, Object> result = MutableMap.of();
-        CatalogItem<?> item = mgmt.getCatalog().getCatalogItem(catalogId);
+        CatalogItem<?,?> item = mgmt.getCatalog().getCatalogItem(catalogId);
         if (item==null) return result;
         
         result.addIfNotNull("iconUrl", item.getIconUrl());
@@ -411,6 +440,7 @@ public class BrooklynRestResourceUtils {
     }
 
 
+    @Deprecated
     @SuppressWarnings({ "rawtypes" })
     public Response createCatalogEntryFromGroovyCode(String groovyCode) {
         ClassLoader parent = getCatalog().getRootClassLoader();
@@ -419,12 +449,12 @@ public class BrooklynRestResourceUtils {
         Class clazz = loader.parseClass(groovyCode);
 
         if (AbstractEntity.class.isAssignableFrom(clazz)) {
-            CatalogItem<?> item = getCatalog().addItem(clazz);
+            CatalogItem<?,?> item = getCatalog().addItem(clazz);
             log.info("REST created "+item);
             return Response.created(URI.create("entities/" + clazz.getName())).build();
 
         } else if (AbstractPolicy.class.isAssignableFrom(clazz)) {
-            CatalogItem<?> item = getCatalog().addItem(clazz);
+            CatalogItem<?,?> item = getCatalog().addItem(clazz);
             log.info("REST created "+item);
             return Response.created(URI.create("policies/" + clazz.getName())).build();
         }

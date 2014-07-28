@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.entity.rebind;
 
 import java.util.Collection;
@@ -19,15 +37,21 @@ import com.google.common.collect.Maps;
  * (for any serializing / file-based persister implementation).
  * 
  * @author aled
+ * 
+ * @deprecated since 0.7; unused code
  */
+@Deprecated
 public class ImmediateDeltaChangeListener implements ChangeListener {
 
     private final BrooklynMementoPersister persister;
+    private final PersistenceExceptionHandler exceptionHandler;
     
     private volatile boolean running = true;
 
     public ImmediateDeltaChangeListener(BrooklynMementoPersister persister) {
         this.persister = persister;
+        exceptionHandler = PersistenceExceptionHandlerImpl.builder()
+                .build();
     }
     
     @Override
@@ -94,7 +118,7 @@ public class ImmediateDeltaChangeListener implements ChangeListener {
              */
             synchronized (new Object()) {}
 
-            persister.delta(delta);
+            persister.delta(delta, exceptionHandler);
         }
     }
     
@@ -103,7 +127,7 @@ public class ImmediateDeltaChangeListener implements ChangeListener {
         if (running && persister != null) {
             PersisterDeltaImpl delta = new PersisterDeltaImpl();
             delta.removedEntityIds.add(entity.getId());
-            persister.delta(delta);
+            persister.delta(delta, exceptionHandler);
         }
     }
 
@@ -112,7 +136,7 @@ public class ImmediateDeltaChangeListener implements ChangeListener {
         if (running && persister != null) {
             PersisterDeltaImpl delta = new PersisterDeltaImpl();
             delta.removedLocationIds.add(location.getId());
-            persister.delta(delta);
+            persister.delta(delta, exceptionHandler);
         }
     }
 
@@ -121,7 +145,7 @@ public class ImmediateDeltaChangeListener implements ChangeListener {
         if (running && persister != null) {
             PersisterDeltaImpl delta = new PersisterDeltaImpl();
             delta.removedPolicyIds.add(policy.getId());
-            persister.delta(delta);
+            persister.delta(delta, exceptionHandler);
         }
     }
 
@@ -130,7 +154,7 @@ public class ImmediateDeltaChangeListener implements ChangeListener {
         if (running && persister != null) {
             PersisterDeltaImpl delta = new PersisterDeltaImpl();
             delta.removedEnricherIds.add(enricher.getId());
-            persister.delta(delta);
+            persister.delta(delta, exceptionHandler);
         }
     }
 
@@ -139,7 +163,7 @@ public class ImmediateDeltaChangeListener implements ChangeListener {
         if (running && persister != null) {
             PersisterDeltaImpl delta = new PersisterDeltaImpl();
             delta.locations.add(((LocationInternal)location).getRebindSupport().getMemento());
-            persister.delta(delta);
+            persister.delta(delta, exceptionHandler);
         }
     }
     
@@ -148,7 +172,7 @@ public class ImmediateDeltaChangeListener implements ChangeListener {
         if (running && persister != null) {
             PersisterDeltaImpl delta = new PersisterDeltaImpl();
             delta.policies.add(policy.getRebindSupport().getMemento());
-            persister.delta(delta);
+            persister.delta(delta, exceptionHandler);
         }
     }
     
@@ -157,7 +181,7 @@ public class ImmediateDeltaChangeListener implements ChangeListener {
         if (running && persister != null) {
             PersisterDeltaImpl delta = new PersisterDeltaImpl();
             delta.enrichers.add(enricher.getRebindSupport().getMemento());
-            persister.delta(delta);
+            persister.delta(delta, exceptionHandler);
         }
     }
 }

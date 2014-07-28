@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.util.exceptions;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -9,7 +27,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
-import brooklyn.util.collections.MutableList;
 import brooklyn.util.text.Strings;
 
 import com.google.common.base.Predicate;
@@ -20,11 +37,11 @@ import com.google.common.collect.Iterables;
 
 public class Exceptions {
 
-    private static final List<Class<? extends Throwable>> BORING_THROWABLES = ImmutableList.<Class<? extends Throwable>>of(
+    private static final List<Class<? extends Throwable>> BORING_THROWABLE_SUPERTYPES = ImmutableList.<Class<? extends Throwable>>of(
         ExecutionException.class, InvocationTargetException.class, PropagatedRuntimeException.class);
 
     private static boolean isBoring(Throwable t) {
-        for (Class<? extends Throwable> type: BORING_THROWABLES)
+        for (Class<? extends Throwable> type: BORING_THROWABLE_SUPERTYPES)
             if (type.isInstance(t)) return true;
         return false;
     }
@@ -36,13 +53,15 @@ public class Exceptions {
         }
     };
 
-    private static List<Class<? extends Throwable>> BORING_PREFIX_THROWABLES = MutableList.copyOf(BORING_THROWABLES)
-        .append(IllegalStateException.class).append(RuntimeException.class).append(CompoundRuntimeException.class)
-        .toImmutable();
+    private static List<Class<? extends Throwable>> BORING_PREFIX_THROWABLE_EXACT_TYPES = ImmutableList.<Class<? extends Throwable>>of(
+        IllegalStateException.class, RuntimeException.class, CompoundRuntimeException.class);
 
-    private static boolean isPrefixBoring(Throwable t) {
-        for (Class<? extends Throwable> type: BORING_PREFIX_THROWABLES)
-            if (type.isInstance(t)) return true;
+    /** Returns whether this is throwable either known to be boring or to have an unuseful prefix */
+    public static boolean isPrefixBoring(Throwable t) {
+        if (isBoring(t))
+            return true;
+        for (Class<? extends Throwable> type: BORING_PREFIX_THROWABLE_EXACT_TYPES)
+            if (t.getClass().equals(type)) return true;
         return false;
     }
 
@@ -50,7 +69,7 @@ public class Exceptions {
         String was;
         do {
             was = s;
-            for (Class<? extends Throwable> type: BORING_PREFIX_THROWABLES) {
+            for (Class<? extends Throwable> type: BORING_PREFIX_THROWABLE_EXACT_TYPES) {
                 s = Strings.removeAllFromStart(type.getCanonicalName(), type.getName(), type.getSimpleName(), ":", " ");
             }
         } while (!was.equals(s));
@@ -80,6 +99,8 @@ public class Exceptions {
     public static void propagateIfFatal(Throwable throwable) {
         if (throwable instanceof InterruptedException)
             throw new RuntimeInterruptedException((InterruptedException) throwable);
+        if (throwable instanceof RuntimeInterruptedException)
+            throw (RuntimeInterruptedException) throwable;
         if (throwable instanceof Error)
             throw (Error) throwable;
     }

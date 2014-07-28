@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.cli;
 
 import groovy.lang.GroovyClassLoader;
@@ -48,6 +66,7 @@ import brooklyn.util.ResourceUtils;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.exceptions.FatalConfigurationRuntimeException;
 import brooklyn.util.exceptions.FatalRuntimeException;
+import brooklyn.util.exceptions.UserFacingException;
 import brooklyn.util.guava.Maybe;
 import brooklyn.util.javalang.Enums;
 import brooklyn.util.net.Networking;
@@ -174,10 +193,10 @@ public class Main {
             // Display info text
             System.out.println(BANNER);
             System.out.println("Version:  " + version);
-            System.out.println("Website:  http://brooklyn.io/");
-            System.out.println("Source:   https://github.com/brooklyncentral/brooklyn/");
+            System.out.println("Website:  http://brooklyn.incubator.apache.org");
+            System.out.println("Source:   https://github.com/apache/incubator-brooklyn");
             System.out.println();
-            System.out.println("Copyright 2011-2014 by Cloudsoft Corp.");
+            System.out.println("Copyright 2011-2014 The Apache Software Foundation.");
             System.out.println("Licensed under the Apache 2.0 License");
             System.out.println();
 
@@ -354,8 +373,7 @@ public class Main {
                 computeLocations();
                 
                 ResourceUtils utils = ResourceUtils.create(this);
-                ClassLoader parent = utils.getLoader();
-                GroovyClassLoader loader = new GroovyClassLoader(parent);
+                GroovyClassLoader loader = new GroovyClassLoader(getClass().getClassLoader());
     
                 // First, run a setup script if the user has provided one
                 if (script != null) {
@@ -402,7 +420,13 @@ public class Main {
             BrooklynServerDetails server = launcher.getServerDetails();
             ManagementContext ctx = server.getManagementContext();
             
-            populateCatalog(launcher.getServerDetails().getManagementContext().getCatalog());
+            try {
+                populateCatalog(launcher.getServerDetails().getManagementContext().getCatalog());
+            } catch (Exception e) {
+                Exceptions.propagateIfFatal(e);
+                // don't fail to start just because catalog is not available
+                log.error("Error populating catalog: "+e, e);
+            }
 
             if (verbose) {
                 Entities.dumpInfo(launcher.getApplications());
@@ -740,7 +764,8 @@ public class Main {
         } catch (Exception e) { // unexpected error during command execution
             log.error("Execution error: " + e.getMessage(), e);
             System.err.println("Execution error: " + e.getMessage());
-            e.printStackTrace();
+            if (!(e instanceof UserFacingException))
+                e.printStackTrace();
             System.exit(EXECUTION_ERROR);
         }
     }

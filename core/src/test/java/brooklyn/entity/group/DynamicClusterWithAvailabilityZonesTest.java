@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.entity.group;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -13,8 +31,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import brooklyn.entity.BrooklynAppUnitTestSupport;
 import brooklyn.entity.Entity;
-import brooklyn.entity.basic.ApplicationBuilder;
 import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.basic.EntityPredicates;
 import brooklyn.entity.group.zoneaware.ProportionalZoneFailureDetector;
@@ -27,7 +45,6 @@ import brooklyn.location.cloud.AbstractAvailabilityZoneExtension;
 import brooklyn.location.cloud.AvailabilityZoneExtension;
 import brooklyn.management.ManagementContext;
 import brooklyn.test.Asserts;
-import brooklyn.test.entity.TestApplication;
 import brooklyn.test.entity.TestEntity;
 import brooklyn.util.time.Duration;
 
@@ -38,24 +55,22 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
-public class DynamicClusterWithAvailabilityZonesTest {
+public class DynamicClusterWithAvailabilityZonesTest extends BrooklynAppUnitTestSupport {
     
-    private ManagementContext managementContext;
-    private TestApplication app;
     private DynamicCluster cluster;
     private SimulatedLocation loc;
     
     @BeforeMethod(alwaysRun=true)
+    @Override
     public void setUp() throws Exception {
-        app = ApplicationBuilder.newManagedApp(TestApplication.class);
-        managementContext = app.getManagementContext();
+        super.setUp();
         cluster = app.createAndManageChild(EntitySpec.create(DynamicCluster.class)
                 .configure(DynamicCluster.ENABLE_AVAILABILITY_ZONES, true)
                 .configure(DynamicCluster.INITIAL_SIZE, 0)
                 .configure(DynamicCluster.MEMBER_SPEC, EntitySpec.create(TestEntity.class)));
         
-        loc = managementContext.getLocationManager().createLocation(LocationSpec.create(SimulatedLocation.class));
-        loc.addExtension(AvailabilityZoneExtension.class, new SimulatedAvailabilityZoneExtension(managementContext, loc, ImmutableList.of("zone1", "zone2", "zone3", "zone4")));
+        loc = mgmt.getLocationManager().createLocation(LocationSpec.create(SimulatedLocation.class));
+        loc.addExtension(AvailabilityZoneExtension.class, new SimulatedAvailabilityZoneExtension(mgmt, loc, ImmutableList.of("zone1", "zone2", "zone3", "zone4")));
     }
 
     @Test

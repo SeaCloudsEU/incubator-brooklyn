@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.rest.api;
 
 import brooklyn.rest.apidoc.Apidoc;
@@ -25,20 +43,39 @@ import java.util.List;
 public interface CatalogApi {
 
     @POST
-    @ApiOperation(value = "Add a new entity or policy type to the catalog by uploading a Groovy script from browser using multipart/form-data",
+    @ApiOperation(value = "Add a catalog item (e.g. new entity or policy type) by uploading YAML descriptor from browser using multipart/form-data",
         responseClass = "String")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
     public Response createFromMultipart(
-        @ApiParam(name = "groovyCode", value = "multipart/form-data file input field")
-        @FormDataParam("groovyCode") InputStream uploadedInputStream,
-        @FormDataParam("groovyCode") FormDataContentDisposition fileDetail) throws IOException ;
+        @ApiParam(name = "yaml", value = "multipart/form-data file input field")
+        @FormDataParam("yaml") InputStream uploadedInputStream,
+        @FormDataParam("yaml") FormDataContentDisposition fileDetail) throws IOException ;
     
     @POST
-    @ApiOperation(value = "Add a new entity or policy type by uploading a Groovy script", responseClass = "String")
+    @ApiOperation(value = "Add a catalog item (e.g. new entity or policy type) by uploading YAML descriptor", responseClass = "String")
     public Response create(
-            @ApiParam(name = "groovyCode", value = "Groovy code for the entity or policy", required = true)
-            @Valid String groovyCode
+            @ApiParam(name = "yaml", value = "YAML descriptor of catalog item", required = true)
+            @Valid String yaml
     ) ;
+
+    @POST
+    @Consumes(MediaType.APPLICATION_XML)
+    @Path("/reset")
+    @ApiOperation(value = "Resets the catalog to the given (XML) format")
+    public Response resetXml(
+            @ApiParam(name = "xml", value = "XML descriptor of the entire catalog to install", required = true)
+            @Valid String xml
+    ) ;
+
+    @DELETE
+    @Path("/entities/{entityId}")
+    @ApiOperation(value = "Deletes an entity's definition from the catalog")
+    @ApiErrors(value = {
+        @ApiError(code = 404, reason = "Entity not found")
+    })
+    public void deleteEntity(
+        @ApiParam(name = "entityId", value = "The ID of the entity or template to delete", required = true)
+        @PathParam("entityId") String entityId) throws Exception ;
 
     @GET
     @Path("/entities")
@@ -69,6 +106,16 @@ public interface CatalogApi {
     public CatalogEntitySummary getEntity(
         @ApiParam(name = "entityId", value = "The ID of the entity or template to retrieve", required = true)
         @PathParam("entityId") String entityId) throws Exception ;
+
+    @GET
+    @Path("/applications/{applicationId}")
+    @ApiOperation(value = "Fetch an application's definition from the catalog", responseClass = "CatalogEntitySummary", multiValueResponse = true)
+    @ApiErrors(value = {
+        @ApiError(code = 404, reason = "Entity not found")
+    })
+    public CatalogEntitySummary getApplication(
+        @ApiParam(name = "applicationId", value = "The ID of the application to retrieve", required = true)
+        @PathParam("applicationId") String entityId) throws Exception ;
 
     @GET
     @Path("/policies")

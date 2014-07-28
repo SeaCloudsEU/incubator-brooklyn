@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.catalog.internal;
 
 import java.net.URLEncoder;
@@ -16,6 +34,7 @@ import brooklyn.catalog.internal.MyCatalogItems.MySillyAppTemplate;
 import brooklyn.config.BrooklynProperties;
 import brooklyn.entity.Application;
 import brooklyn.entity.basic.Entities;
+import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.management.internal.LocalManagementContext;
 import brooklyn.util.net.Urls;
 import brooklyn.util.text.Strings;
@@ -80,17 +99,17 @@ public class CatalogScanTest {
         loadAnnotationsOnlyCatalog();
         BrooklynCatalog c = annotsCatalog;
         
-        Iterable<CatalogItem<Object>> bases = c.getCatalogItems(CatalogPredicates.name(Predicates.containsPattern("MyBaseEntity")));
+        Iterable<CatalogItem<Object,Object>> bases = c.getCatalogItems(CatalogPredicates.name(Predicates.containsPattern("MyBaseEntity")));
         Assert.assertEquals(Iterables.size(bases), 0, "should have been empty: "+bases);
         
-        Iterable<CatalogItem<Object>> asdfjkls = c.getCatalogItems(CatalogPredicates.name(Predicates.containsPattern("__asdfjkls__shouldnotbefound")));
+        Iterable<CatalogItem<Object,Object>> asdfjkls = c.getCatalogItems(CatalogPredicates.name(Predicates.containsPattern("__asdfjkls__shouldnotbefound")));
         Assert.assertEquals(Iterables.size(asdfjkls), 0);
         
-        Iterable<CatalogItem<Object>> silly1 = c.getCatalogItems(CatalogPredicates.name(Predicates.equalTo("MySillyAppTemplate")));
-        Iterable<CatalogItem<Object>> silly2 = c.getCatalogItems(CatalogPredicates.javaType(Predicates.equalTo(MySillyAppTemplate.class.getName())));
+        Iterable<CatalogItem<Object,Object>> silly1 = c.getCatalogItems(CatalogPredicates.name(Predicates.equalTo("MySillyAppTemplate")));
+        Iterable<CatalogItem<Object,Object>> silly2 = c.getCatalogItems(CatalogPredicates.javaType(Predicates.equalTo(MySillyAppTemplate.class.getName())));
         Assert.assertEquals(Iterables.getOnlyElement(silly1), Iterables.getOnlyElement(silly2));
         
-        CatalogItem<Application> s1 = c.getCatalogItem(Application.class, silly1.iterator().next().getId());
+        CatalogItem<Application,EntitySpec<? extends Application>> s1 = c.getCatalogItem(Application.class, silly1.iterator().next().getId());
         Assert.assertEquals(s1, Iterables.getOnlyElement(silly1));
         
         Assert.assertEquals(s1.getDescription(), "Some silly app test");
@@ -106,14 +125,14 @@ public class CatalogScanTest {
     @Test
     public void testAnnotationLoadsSomeApps() {
         loadAnnotationsOnlyCatalog();
-        Iterable<CatalogItem<Object>> silly1 = annotsCatalog.getCatalogItems(CatalogPredicates.name(Predicates.equalTo("MySillyAppTemplate")));
+        Iterable<CatalogItem<Object,Object>> silly1 = annotsCatalog.getCatalogItems(CatalogPredicates.name(Predicates.equalTo("MySillyAppTemplate")));
         Assert.assertEquals(Iterables.getOnlyElement(silly1).getDescription(), "Some silly app test");
     }
     
     @Test
     public void testAnnotationLoadsSomeAppBuilders() {
         loadAnnotationsOnlyCatalog();
-        Iterable<CatalogItem<Object>> silly1 = annotsCatalog.getCatalogItems(CatalogPredicates.name(Predicates.equalTo("MySillyAppBuilderTemplate")));
+        Iterable<CatalogItem<Object,Object>> silly1 = annotsCatalog.getCatalogItems(CatalogPredicates.name(Predicates.equalTo("MySillyAppBuilderTemplate")));
         Assert.assertEquals(Iterables.getOnlyElement(silly1).getDescription(), "Some silly app builder test");
     }
     

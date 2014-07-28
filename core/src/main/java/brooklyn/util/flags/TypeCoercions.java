@@ -1,9 +1,26 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.util.flags;
 
 import groovy.lang.Closure;
 import groovy.time.TimeDuration;
 
-import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -24,7 +41,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
-import org.codehaus.jackson.map.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +48,8 @@ import brooklyn.entity.basic.ClosureEntityFactory;
 import brooklyn.entity.basic.ConfigurableEntityFactory;
 import brooklyn.entity.basic.ConfigurableEntityFactoryFromEntityFactory;
 import brooklyn.entity.basic.EntityFactory;
+import brooklyn.event.AttributeSensor;
+import brooklyn.event.basic.BasicAttributeSensor;
 import brooklyn.util.JavaGroovyEquivalents;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.guava.Maybe;
@@ -40,13 +58,14 @@ import brooklyn.util.net.Cidr;
 import brooklyn.util.net.Networking;
 import brooklyn.util.net.UserAndHostAndPort;
 import brooklyn.util.text.StringEscapes.JavaStringEscapes;
+import brooklyn.util.text.Strings;
 import brooklyn.util.time.Duration;
+import brooklyn.util.yaml.Yamls;
 
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
-import com.google.common.base.Splitter;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -55,6 +74,7 @@ import com.google.common.net.HostAndPort;
 import com.google.common.primitives.Primitives;
 import com.google.common.reflect.TypeToken;
 
+@SuppressWarnings("rawtypes")
 public class TypeCoercions {
 
     private static final Logger log = LoggerFactory.getLogger(TypeCoercions.class);
@@ -84,7 +104,7 @@ public class TypeCoercions {
     }
 
     /** @see #coerce(Object, Class) */
-    @SuppressWarnings({ "unchecked", "rawtypes" })
+    @SuppressWarnings({ "unchecked" })
     public static <T> T coerce(Object value, TypeToken<T> targetTypeToken) {
         if (value==null) return null;
         // does not actually cast generified contents; that is left to the caller
@@ -236,11 +256,18 @@ public class TypeCoercions {
             return (T) value;
         }
         
-        // boolean can only be cast to itself
         if (targetWrapType == Boolean.class) {
-            return (T) value;
+            // only char can be mapped to boolean
+            // (we could say 0=false, nonzero=true, but there is no compelling use case so better
+            // to encourage users to write as boolean)
+            if (sourceWrapType == Character.class)
+                return (T) stringToPrimitive(value.toString(), targetType);
+            
+            throw new ClassCoercionException("Cannot cast "+sourceWrapType+" ("+value+") to "+targetType);
         } else if (sourceWrapType == Boolean.class) {
-            return (T) value;
+            // boolean can't cast to anything else
+            
+            throw new ClassCoercionException("Cannot cast "+sourceWrapType+" ("+value+") to "+targetType);
         }
         
         // for whole-numbers (where casting to long won't lose anything)...
@@ -294,7 +321,6 @@ public class TypeCoercions {
         }
     }
     
-    @SuppressWarnings("unchecked")
     public static boolean isPrimitiveOrBoxer(Class<?> type) {
         return Primitives.allPrimitiveTypes().contains(type) || Primitives.allWrapperTypes().contains(type);
     }
@@ -302,7 +328,6 @@ public class TypeCoercions {
     @SuppressWarnings("unchecked")
     public static <T> T stringToPrimitive(String value, Class<T> targetType) {
         assert Primitives.allPrimitiveTypes().contains(targetType) || Primitives.allWrapperTypes().contains(targetType) : "targetType="+targetType;
-
         // If char, then need to do explicit conversion
         if (targetType == Character.class || targetType == char.class) {
             if (value.length() == 1) {
@@ -310,6 +335,20 @@ public class TypeCoercions {
             } else if (value.length() != 1) {
                 throw new ClassCoercionException("Cannot coerce type String to "+targetType.getCanonicalName()+" ("+value+"): adapting failed");
             }
+        }
+        value = value.trim();
+        // For boolean we could use valueOf, but that returns false whereas we'd rather throw errors on bad values
+        if (targetType == Boolean.class || targetType == boolean.class) {
+            if ("true".equalsIgnoreCase(value)) return (T) Boolean.TRUE;
+            if ("false".equalsIgnoreCase(value)) return (T) Boolean.FALSE;
+            if ("yes".equalsIgnoreCase(value)) return (T) Boolean.TRUE;
+            if ("no".equalsIgnoreCase(value)) return (T) Boolean.FALSE;
+            if ("t".equalsIgnoreCase(value)) return (T) Boolean.TRUE;
+            if ("f".equalsIgnoreCase(value)) return (T) Boolean.FALSE;
+            if ("y".equalsIgnoreCase(value)) return (T) Boolean.TRUE;
+            if ("n".equalsIgnoreCase(value)) return (T) Boolean.FALSE;
+            
+            throw new ClassCoercionException("Cannot coerce type String to "+targetType.getCanonicalName()+" ("+value+"): adapting failed"); 
         }
         
         // Otherwise can use valueOf reflectively
@@ -395,12 +434,14 @@ public class TypeCoercions {
             }
         });
         registerAdapter(Collection.class, Set.class, new Function<Collection,Set>() {
+            @SuppressWarnings("unchecked")
             @Override
             public Set apply(Collection input) {
                 return new LinkedHashSet(input);
             }
         });
         registerAdapter(Collection.class, List.class, new Function<Collection,List>() {
+            @SuppressWarnings("unchecked")
             @Override
             public List apply(Collection input) {
                 return new ArrayList(input);
@@ -447,12 +488,14 @@ public class TypeCoercions {
             }
         });
         registerAdapter(Closure.class, ConfigurableEntityFactory.class, new Function<Closure,ConfigurableEntityFactory>() {
+            @SuppressWarnings("unchecked")
             @Override
             public ConfigurableEntityFactory apply(Closure input) {
                 return new ClosureEntityFactory(input);
             }
         });
         registerAdapter(EntityFactory.class, ConfigurableEntityFactory.class, new Function<EntityFactory,ConfigurableEntityFactory>() {
+            @SuppressWarnings("unchecked")
             @Override
             public ConfigurableEntityFactory apply(EntityFactory input) {
                 if (input instanceof ConfigurableEntityFactory) return (ConfigurableEntityFactory)input;
@@ -460,6 +503,7 @@ public class TypeCoercions {
             }
         });
         registerAdapter(Closure.class, EntityFactory.class, new Function<Closure,EntityFactory>() {
+            @SuppressWarnings("unchecked")
             @Override
             public EntityFactory apply(Closure input) {
                 return new ClosureEntityFactory(input);
@@ -492,6 +536,7 @@ public class TypeCoercions {
             }
         });
         registerAdapter(Object.class, TimeDuration.class, new Function<Object,TimeDuration>() {
+            @SuppressWarnings("deprecation")
             @Override
             public TimeDuration apply(final Object input) {
                 log.warn("deprecated automatic coercion of Object to TimeDuration (set breakpoint in TypeCoercions to inspect, convert to Duration)");
@@ -574,6 +619,12 @@ public class TypeCoercions {
                 return BigInteger.valueOf(input);
             }
         });
+        registerAdapter(String.class, AttributeSensor.class, new Function<String,AttributeSensor>() {
+            @Override
+            public AttributeSensor apply(final String input) {
+                return new BasicAttributeSensor(Object.class, input);
+            }
+        });
         registerAdapter(String.class, List.class, new Function<String,List>() {
             @Override
             public List<String> apply(final String input) {
@@ -583,20 +634,40 @@ public class TypeCoercions {
         registerAdapter(String.class, Map.class, new Function<String,Map>() {
             @Override
             public Map apply(final String input) {
-                // Auto-detect JSON. This allows complex data structures to be received over the REST API.
-                try {
-                    if (!input.isEmpty() && input.charAt(0) == '{') {
-                        return new ObjectMapper().readValue(input, Map.class);
+                Exception error = null;
+                
+                // first try wrapping in braces if needed
+                if (!input.trim().startsWith("{")) {
+                    try {
+                        return apply("{ "+input+" }");
+                    } catch (Exception e) {
+                        Exceptions.propagateIfFatal(e);
+                        // prefer this error
+                        error = e;
+                        // fall back to parsing without braces, e.g. if it's multiline
                     }
-                } catch (IOException e) {
-                    // just fall through to the map parsing
                 }
-                
-                // TODO would be nice to accept YAML for complex data structures too, but it's not as simple as JSON to auto-detect.
-                
-                // Simple map parsing - supports "key1=value1,key2=value2" style input
-                // TODO we should respect quoted strings etc
-                return ImmutableMap.copyOf(Splitter.on(",").trimResults().omitEmptyStrings().withKeyValueSeparator("=").split(input));
+
+                try {
+                    return Yamls.getAs( Yamls.parseAll(input), Map.class );
+                } catch (Exception e) {
+                    Exceptions.propagateIfFatal(e);
+                    if (error!=null && input.indexOf('\n')==-1) {
+                        // prefer the original error if it wasn't braced and wasn't multiline
+                        e = error;
+                    }
+                    throw new IllegalArgumentException("Cannot parse string as map with flexible YAML parsing; "+
+                        (e instanceof ClassCastException ? "yaml treats it as a string" : 
+                        (e instanceof IllegalArgumentException && Strings.isNonEmpty(e.getMessage())) ? e.getMessage() :
+                        ""+e) );
+                }
+
+                // NB: previously we supported this also, when we did json above;
+                // yaml support is better as it supports quotes (and better than json because it allows dropping quotes)
+                // snake-yaml, our parser, also accepts key=value -- although i'm not sure this is strictly yaml compliant;
+                // our tests will catch it if snake behaviour changes, and we can reinstate this
+                // (but note it doesn't do quotes; see http://code.google.com/p/guava-libraries/issues/detail?id=412 for that):
+//                return ImmutableMap.copyOf(Splitter.on(",").trimResults().omitEmptyStrings().withKeyValueSeparator("=").split(input));
             }
         });
     }

@@ -1,15 +1,37 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package io.brooklyn.camp.brooklyn;
 
 import io.brooklyn.camp.spi.Assembly;
 import io.brooklyn.camp.spi.AssemblyTemplate;
 
 import java.io.Reader;
+import java.io.StringReader;
 import java.util.Set;
 
+import org.codehaus.groovy.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+
+import com.google.common.base.Joiner;
 
 import brooklyn.entity.Entity;
 import brooklyn.entity.basic.BrooklynTaskTags;
@@ -19,7 +41,6 @@ import brooklyn.management.Task;
 import brooklyn.management.internal.LocalManagementContext;
 import brooklyn.test.entity.LocalManagementContextForTests;
 import brooklyn.util.ResourceUtils;
-import brooklyn.util.stream.Streams;
 
 public abstract class AbstractYamlTest {
 
@@ -36,7 +57,7 @@ public abstract class AbstractYamlTest {
     protected ManagementContext mgmt() { return brooklynMgmt; }
     
     @BeforeMethod(alwaysRun = true)
-    public void setup() {
+    public void setUp() {
         launcher = new BrooklynCampPlatformLauncherNoServer() {
             @Override
             protected LocalManagementContext newMgmtContext() {
@@ -53,7 +74,7 @@ public abstract class AbstractYamlTest {
     }
     
     @AfterMethod(alwaysRun = true)
-    public void teardown() {
+    public void tearDown() {
         if (brooklynMgmt != null) Entities.destroyAll(brooklynMgmt);
         if (launcher != null) launcher.stopServers();
     }
@@ -66,12 +87,20 @@ public abstract class AbstractYamlTest {
         }
     }
 
-    protected Entity createAndStartApplication(String yamlFileName, String ...extraLines) throws Exception {
+    protected Reader loadYaml(String yamlFileName, String ...extraLines) throws Exception {
         String input = new ResourceUtils(this).getResourceAsString(yamlFileName).trim();
         StringBuilder builder = new StringBuilder(input);
         for (String l: extraLines)
             builder.append("\n").append(l);
-        return createAndStartApplication(Streams.newReaderWithContents(builder.toString()));
+        return new StringReader(builder.toString());
+    }
+    
+    protected Entity createAndStartApplication(String... multiLineYaml) throws Exception {
+        return createAndStartApplication(join(multiLineYaml));
+    }
+    
+    protected Entity createAndStartApplication(String input) throws Exception {
+        return createAndStartApplication(new StringReader(input));
     }
 
     protected Entity createAndStartApplication(Reader input) throws Exception {
@@ -99,7 +128,24 @@ public abstract class AbstractYamlTest {
         return app;
     }
 
+    protected void addCatalogItem(String... catalogYaml) {
+        addCatalogItem(join(catalogYaml));
+    }
+
+    protected void addCatalogItem(String catalogYaml) {
+        mgmt().getCatalog().addItem(catalogYaml);
+    }
+
+    protected void deleteCatalogEntity(String catalogItem) {
+        mgmt().getCatalog().deleteCatalogItem(catalogItem);
+    }
+    
     protected Logger getLogger() {
         return LOG;
     }
+
+    private String join(String[] catalogYaml) {
+        return Joiner.on("\n").join(catalogYaml);
+    }
+    
 }

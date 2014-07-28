@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.management.ha;
 
 import static org.testng.Assert.assertEquals;
@@ -18,6 +36,7 @@ import org.testng.annotations.Test;
 import brooklyn.entity.basic.ApplicationBuilder;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.proxying.EntitySpec;
+import brooklyn.entity.rebind.PersistenceExceptionHandlerImpl;
 import brooklyn.entity.rebind.persister.BrooklynMementoPersisterToObjectStore;
 import brooklyn.entity.rebind.persister.InMemoryObjectStore;
 import brooklyn.entity.rebind.persister.ListeningObjectStore;
@@ -79,8 +98,8 @@ public class HighAvailabilityManagerSplitBrainTest {
             objectStore.prepareForSharedUse(PersistMode.CLEAN, HighAvailabilityMode.DISABLED);
             persister = new ManagementPlaneSyncRecordPersisterToObjectStore(mgmt, objectStore, classLoader);
             ((ManagementPlaneSyncRecordPersisterToObjectStore)persister).allowRemoteTimestampInMemento();
-            BrooklynMementoPersisterToObjectStore persisterObj = new BrooklynMementoPersisterToObjectStore(objectStore, classLoader);
-            mgmt.getRebindManager().setPersister(persisterObj);
+            BrooklynMementoPersisterToObjectStore persisterObj = new BrooklynMementoPersisterToObjectStore(objectStore, mgmt.getBrooklynProperties(), classLoader);
+            mgmt.getRebindManager().setPersister(persisterObj, PersistenceExceptionHandlerImpl.builder().build());
             ha = new HighAvailabilityManagerImpl(mgmt)
                 .setPollPeriod(Duration.PRACTICALLY_FOREVER)
                 .setHeartbeatTimeout(Duration.THIRTY_SECONDS)
@@ -162,6 +181,8 @@ public class HighAvailabilityManagerSplitBrainTest {
     @Test
     public void testIfNodeStopsBeingAbleToWrite() throws Exception {
         useSharedTime();
+        log.info("time at start "+sharedTickerCurrentMillis());
+        
         HaMgmtNode n1 = newNode();
         HaMgmtNode n2 = newNode();
         
@@ -195,16 +216,19 @@ public class HighAvailabilityManagerSplitBrainTest {
         
         assertEquals(n1.mgmt.getApplications().size(), 1);
         assertEquals(n2.mgmt.getApplications().size(), 0);
+        log.info("persisting "+n1.ownNodeId);
         n1.mgmt.getRebindManager().forcePersistNow();
         
         n1.objectStore.setWritesFailSilently(true);
         log.info(n1+" writes off");
         sharedTickerAdvance(Duration.ONE_MINUTE);
+        log.info("time now "+sharedTickerCurrentMillis());
+        Long time1 = sharedTickerCurrentMillis();
         
+        log.info("publish "+n2.ownNodeId);
         n2.ha.publishAndCheck(false);
         ManagementPlaneSyncRecord memento2b = n2.ha.getManagementPlaneSyncState();
         log.info(n2+" HA now: "+memento2b);
-        Long time1 = sharedTickerCurrentMillis();
         
         // n2 infers n1 as failed 
         assertEquals(memento2b.getManagementNodes().get(n1.ownNodeId).getStatus(), ManagementNodeState.FAILED);
@@ -221,8 +245,10 @@ public class HighAvailabilityManagerSplitBrainTest {
         log.info(n1+" writes on");
         
         sharedTickerAdvance(Duration.ONE_SECOND);
+        log.info("time now "+sharedTickerCurrentMillis());
         Long time2 = sharedTickerCurrentMillis();
         
+        log.info("publish "+n1.ownNodeId);
         n1.ha.publishAndCheck(false);
         ManagementPlaneSyncRecord memento1b = n1.ha.getManagementPlaneSyncState();
         log.info(n1+" HA now: "+memento1b);
@@ -248,7 +274,7 @@ public class HighAvailabilityManagerSplitBrainTest {
         assertEquals(n2.mgmt.getApplications().size(), 1);
     }
     
-    @Test(invocationCount=50)
+    @Test(invocationCount=50, groups="Integration")
     public void testIfNodeStopsBeingAbleToWriteManyTimes() throws Exception {
         testIfNodeStopsBeingAbleToWrite();
     }

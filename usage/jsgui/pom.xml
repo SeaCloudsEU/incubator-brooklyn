@@ -1,3 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements.  See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership.  The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License.  You may obtain a copy of the License at
+    
+     http://www.apache.org/licenses/LICENSE-2.0
+    
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied.  See the License for the
+    specific language governing permissions and limitations
+    under the License.
+-->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -20,20 +39,10 @@
     </parent>
 
     <properties>
-        <maven-replacer-plugin.version>1.5.2</maven-replacer-plugin.version>
-        <nodejs-maven-plugin.version>1.0.3</nodejs-maven-plugin.version>
-        <jasmine-maven-plugin.version>1.2.0.0</jasmine-maven-plugin.version>
-<!-- see comment about fixtures below
-        <jasmine-maven-plugin.version>1.3.1.2</jasmine-maven-plugin.version>
--->
-        <requirejs-maven-plugin.version>2.0.0</requirejs-maven-plugin.version>
-
-        <maven-war-plugin.version>2.4</maven-war-plugin.version>
-        <maven-antrun-plugin.version>1.7</maven-antrun-plugin.version>
-
         <project.build.webapp>
             ${project.build.directory}/${project.build.finalName}
         </project.build.webapp>
+        <nodejs.path>${project.basedir}/target/nodejs/node</nodejs.path>
     </properties>
 
     <dependencies>
@@ -98,23 +107,16 @@
                 <directory>${project.basedir}/src/test/resources/fixtures</directory>
                 <targetPath>${project.build.directory}/jasmine/fixtures</targetPath>
             </resource>
-        </resources>        
+        </resources>
         <plugins>
-            <!-- run js tests with: $ mvn clean process-resources jasmine:test -->
             <!--
-                 The Jasmine Maven plugin is now on version 1.3.1.0. It has several improvements,
-                 but we're unable to upgrade to it because of a change to the way it handles our
-                 fixtures. In 1.2 it serves target/fixtures at /fixtures.  This no longer happens
-                 in 1.3.1. Ideally, the plugin would have a configuration option to include other
-                 directories for Jetty to serve. If this were added we would also be able to use
-                 mvn jasmine:bdd.
+                 run js tests with: $ mvn clean process-resources jasmine:test
+                 run tests in the browser with: $ mvn jasmine:bdd
             -->
             <plugin>
                 <groupId>com.github.searls</groupId>
                 <artifactId>jasmine-maven-plugin</artifactId>
                 <version>${jasmine-maven-plugin.version}</version>
-                <!-- avoid double phase executions https://github.com/searls/jasmine-maven-plugin/pull/54 -->
-                <extensions>true</extensions>
                 <executions>
                     <execution>
                         <goals>
@@ -125,7 +127,9 @@
                 <configuration>
                     <!--Uses the require.js test spec-->
                     <specRunnerTemplate>REQUIRE_JS</specRunnerTemplate>
-                    <scriptLoaderPath>js/libs/require.js</scriptLoaderPath>
+                    <preloadSources>
+                        <source>js/libs/require.js</source>
+                    </preloadSources>
 
                     <!--Sources-->
                     <jsSrcDir>${project.basedir}/src/main/webapp/assets</jsSrcDir>
@@ -133,11 +137,21 @@
                     <customRunnerConfiguration>
                         ${project.basedir}/src/test/javascript/config.txt
                     </customRunnerConfiguration>
+
+                    <additionalContexts>
+                        <!-- If context roots start with a / the resource will be available on the server at //root. -->
+                        <!-- It is an error for context roots to end with a /. -->
+                        <context>
+                            <contextRoot>fixtures</contextRoot>
+                            <directory>${project.build.directory}/jasmine/fixtures</directory>
+                        </context>
+                    </additionalContexts>
                 </configuration>
             </plugin>
+
             <plugin>
                 <artifactId>maven-dependency-plugin</artifactId>
-                <version>2.8</version>
+                <version>${maven-dependency-plugin.version}</version>
                 <executions>
                     <execution>
                         <id>prep-server</id>
@@ -170,9 +184,72 @@
                 </configuration>
             </plugin>
         </plugins>
+
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.rat</groupId>
+                    <artifactId>apache-rat-plugin</artifactId>
+                    <version>0.10</version>
+                    <configuration>
+                        <excludes combine.children="append">
+                            <exclude>**/src/main/webapp/assets/js/libs/*</exclude>
+                            <exclude>**/src/main/dev/info.txt</exclude>
+                            <exclude>**/src/main/dev/js/libs/*</exclude>
+                            <exclude>**/src/build/requirejs-maven-plugin/r.js</exclude>
+                            <exclude>**/src/test/javascript/config.txt</exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
     </build>
 
     <profiles>
+        <profile>
+            <id>nodejs-path-override</id>
+            <activation>
+                <os><family>linux</family></os>
+            </activation>
+            <properties>
+                <nodejs.path>${project.basedir}/src/build/nodejs</nodejs.path>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>com.github.skwakman.nodejs-maven-binaries</groupId>
+                    <artifactId>nodejs-maven-binaries</artifactId>
+                    <version>${nodejs-maven-binaries.version}</version>
+                    <classifier>linux-x64</classifier>
+                    <type>zip</type>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <version>${maven-dependency-plugin.version}</version>
+                        <executions>
+                          <execution>
+                            <id>unpack-nodejs64</id>
+                            <phase>prepare-package</phase>
+                            <goals>
+                              <goal>unpack-dependencies</goal>
+                            </goals>
+                            <configuration>
+                              <includeGroupIds>com.github.skwakman.nodejs-maven-binaries</includeGroupIds>
+                              <includeArtifactIds>nodejs-maven-binaries</includeArtifactIds>
+                              <outputDirectory>
+                                 ${project.basedir}/target/nodejs64/
+                              </outputDirectory>
+                            </configuration>
+                          </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
         <profile>
             <id>Optimize resources</id>
             <activation>
@@ -245,7 +322,7 @@
                             </execution>
                         </executions>
                         <configuration>
-                            <nodeExecutable>${project.basedir}/target/nodejs/node</nodeExecutable>
+                            <nodeExecutable>${nodejs.path}</nodeExecutable>
                             <optimizerFile>${project.basedir}/src/build/requirejs-maven-plugin/r.js</optimizerFile>
                             <!-- Replaces Maven tokens in the build file with their values -->
                             <filterConfig>true</filterConfig>

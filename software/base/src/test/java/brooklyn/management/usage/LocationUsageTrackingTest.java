@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.management.usage;
 
 import static org.testng.Assert.assertEquals;
@@ -61,7 +79,8 @@ public class LocationUsageTrackingTest extends BrooklynAppUnitTestSupport {
         assertEquals(event1.getApplicationId(), app.getId());
         assertEquals(event1.getEntityId(), entity.getId());
         assertEquals(event1.getState(), Lifecycle.CREATED);
-        assertTrue(event1.getDate().getTime() > preStart && event1.getDate().getTime() < postStart, "date="+event1.getDate()+"; pre="+preStart+"; post="+postStart);
+        long event1Time = event1.getDate().getTime();
+        assertTrue(event1Time >= preStart && event1Time <= postStart, "event1="+event1Time+"; pre="+preStart+"; post="+postStart);
         
         // Stop the app; expect record of location no longer in use
         long preStop = System.currentTimeMillis();
@@ -78,7 +97,8 @@ public class LocationUsageTrackingTest extends BrooklynAppUnitTestSupport {
         assertEquals(event2.getApplicationId(), app.getId());
         assertEquals(event2.getEntityId(), entity.getId());
         assertEquals(event2.getState(), Lifecycle.DESTROYED);
-        assertTrue(event2.getDate().getTime() > preStop && event2.getDate().getTime() < postStop, "date="+event2.getDate()+"; pre="+preStop+"; post="+postStop);
+        long event2Time = event2.getDate().getTime();
+        assertTrue(event2Time >= preStop && event2Time <= postStop, "event2="+event2Time+"; pre="+preStop+"; post="+postStop);
     }
     
     public static class DynamicLocalhostMachineProvisioningLocation extends LocalhostMachineProvisioningLocation {

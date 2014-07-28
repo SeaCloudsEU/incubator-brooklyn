@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.entity.rebind;
 
 import java.util.Set;
@@ -21,6 +39,7 @@ import brooklyn.mementos.BrooklynMementoPersister;
 import brooklyn.policy.Enricher;
 import brooklyn.policy.Policy;
 import brooklyn.util.exceptions.Exceptions;
+import brooklyn.util.exceptions.RuntimeInterruptedException;
 import brooklyn.util.task.BasicTask;
 import brooklyn.util.task.ScheduledTask;
 import brooklyn.util.time.Duration;
@@ -66,6 +85,8 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
     
     private final BrooklynMementoPersister persister;
 
+    private final PersistenceExceptionHandler exceptionHandler;
+    
     private final Duration period;
     
     private final AtomicLong writeCount = new AtomicLong();
@@ -83,9 +104,10 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
     
     private final Semaphore persistingMutex = new Semaphore(1);
     
-    public PeriodicDeltaChangeListener(ExecutionManager executionManager, BrooklynMementoPersister persister, long periodMillis) {
+    public PeriodicDeltaChangeListener(ExecutionManager executionManager, BrooklynMementoPersister persister, PersistenceExceptionHandler exceptionHandler, long periodMillis) {
         this.executionManager = executionManager;
         this.persister = persister;
+        this.exceptionHandler = exceptionHandler;
         this.period = Duration.of(periodMillis, TimeUnit.MILLISECONDS);
         
         this.persistPoliciesEnabled = BrooklynFeatureEnablement.isEnabled(BrooklynFeatureEnablement.FEATURE_POLICY_PERSISTENCE_PROPERTY);
@@ -102,6 +124,10 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
                     public Void call() {
                         try {
                             persistNow();
+                            return null;
+                        } catch (RuntimeInterruptedException e) {
+                            LOG.debug("Interrupted persisting change-delta (rethrowing)", e);
+                            Thread.currentThread().interrupt();
                             return null;
                         } catch (Exception e) {
                             // Don't rethrow: the behaviour of executionManager is different from a scheduledExecutorService,
@@ -199,28 +225,28 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
                     try {
                         persisterDelta.locations.add(((LocationInternal)location).getRebindSupport().getMemento());
                     } catch (Exception e) {
-                        handleGenerateMementoException(e, "location "+location.getClass().getSimpleName()+"("+location.getId()+")");
+                        exceptionHandler.onGenerateLocationMementoFailed(location, e);
                     }
                 }
                 for (Entity entity : prevDeltaCollector.entities) {
                     try {
                         persisterDelta.entities.add(((EntityInternal)entity).getRebindSupport().getMemento());
                     } catch (Exception e) {
-                        handleGenerateMementoException(e, "entity "+entity.getEntityType().getSimpleName()+"("+entity.getId()+")");
+                        exceptionHandler.onGenerateEntityMementoFailed(entity, e);
                     }
                 }
                 for (Policy policy : prevDeltaCollector.policies) {
                     try {
                         persisterDelta.policies.add(policy.getRebindSupport().getMemento());
                     } catch (Exception e) {
-                        handleGenerateMementoException(e, "policy "+policy.getClass().getSimpleName()+"("+policy.getId()+")");
+                        exceptionHandler.onGeneratePolicyMementoFailed(policy, e);
                     }
                 }
                 for (Enricher enricher : prevDeltaCollector.enrichers) {
                     try {
                         persisterDelta.enrichers.add(enricher.getRebindSupport().getMemento());
                     } catch (Exception e) {
-                        handleGenerateMementoException(e, "enricher "+enricher.getClass().getSimpleName()+"("+enricher.getId()+")");
+                        exceptionHandler.onGenerateEnricherMementoFailed(enricher, e);
                     }
                 }
                 persisterDelta.removedLocationIds = prevDeltaCollector.removedLocationIds;
@@ -238,7 +264,7 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
                 synchronized (new Object()) {}
 
                 // Tell the persister to persist it
-                persister.delta(persisterDelta);
+                persister.delta(persisterDelta, exceptionHandler);
             }
         } catch (Exception e) {
             if (isActive()) {
@@ -250,15 +276,6 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
         } finally {
             writeCount.incrementAndGet();
             persistingMutex.release();
-        }
-    }
-    
-    protected void handleGenerateMementoException(Exception e, String context) {
-        Exceptions.propagateIfFatal(e);
-        if (isActive()) {
-            LOG.warn("Problem generating memento for "+context, e);
-        } else {
-            LOG.debug("Problem generating memento for "+context+", but no longer active (ignoring)", e);
         }
     }
     

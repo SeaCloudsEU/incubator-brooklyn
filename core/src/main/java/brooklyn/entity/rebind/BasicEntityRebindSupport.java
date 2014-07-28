@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.entity.rebind;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -88,14 +106,46 @@ public class BasicEntityRebindSupport implements RebindSupport<EntityMemento> {
         
         setParent(rebindContext, memento);
         addChildren(rebindContext, memento);
-        addPolicies(rebindContext, memento);
-        addEnrichers(rebindContext, memento);
         addMembers(rebindContext, memento);
         addTags(rebindContext, memento);
         addLocations(rebindContext, memento);
 
         doReconstruct(rebindContext, memento);
         ((AbstractEntity)entity).rebind();
+    }
+    
+    @Override
+    public void addPolicies(RebindContext rebindContext, EntityMemento memento) {
+        for (String policyId : memento.getPolicies()) {
+            AbstractPolicy policy = (AbstractPolicy) rebindContext.getPolicy(policyId);
+            if (policy != null) {
+                try {
+                    entity.addPolicy(policy);
+                } catch (Exception e) {
+                    rebindContext.getExceptionHandler().onAddPolicyFailed(entity, policy, e);
+                }
+            } else {
+                LOG.warn("Policy not found; discarding policy {} of entity {}({})",
+                        new Object[] {policyId, memento.getType(), memento.getId()});
+            }
+        }
+    }
+    
+    @Override
+    public void addEnrichers(RebindContext rebindContext, EntityMemento memento) {
+        for (String enricherId : memento.getEnrichers()) {
+            AbstractEnricher enricher = (AbstractEnricher) rebindContext.getEnricher(enricherId);
+            if (enricher != null) {
+                try {
+                    entity.addEnricher(enricher);
+                } catch (Exception e) {
+                    rebindContext.getExceptionHandler().onAddEnricherFailed(entity, enricher, e);
+                }
+            } else {
+                LOG.warn("Enricher not found; discarding enricher {} of entity {}({})",
+                        new Object[] {enricherId, memento.getType(), memento.getId()});
+            }
+        }
     }
     
     /**
@@ -159,30 +209,6 @@ public class BasicEntityRebindSupport implements RebindSupport<EntityMemento> {
             } else {
                 LOG.warn("Location not found; discarding location {} of entity {}({})",
                         new Object[] {id, memento.getType(), memento.getId()});
-            }
-        }
-    }
-    
-    protected void addPolicies(RebindContext rebindContext, EntityMemento memento) {
-        for (String policyId : memento.getPolicies()) {
-            AbstractPolicy policy = (AbstractPolicy) rebindContext.getPolicy(policyId);
-            if (policy != null) {
-                entity.addPolicy(policy);
-            } else {
-                LOG.warn("Policy not found; discarding policy {} of entity {}({})",
-                        new Object[] {policyId, memento.getType(), memento.getId()});
-            }
-        }
-    }
-    
-    protected void addEnrichers(RebindContext rebindContext, EntityMemento memento) {
-        for (String enricherId : memento.getEnrichers()) {
-            AbstractEnricher enricher = (AbstractEnricher) rebindContext.getEnricher(enricherId);
-            if (enricher != null) {
-                entity.addEnricher(enricher);
-            } else {
-                LOG.warn("Enricher not found; discarding enricher {} of entity {}({})",
-                        new Object[] {enricherId, memento.getType(), memento.getId()});
             }
         }
     }

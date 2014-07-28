@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.event.feed.function;
 
 import static org.testng.Assert.assertEquals;
@@ -14,8 +32,7 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import brooklyn.entity.basic.ApplicationBuilder;
-import brooklyn.entity.basic.Entities;
+import brooklyn.entity.BrooklynAppUnitTestSupport;
 import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.event.AttributeSensor;
@@ -26,7 +43,6 @@ import brooklyn.location.Location;
 import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
 import brooklyn.test.Asserts;
 import brooklyn.test.EntityTestUtils;
-import brooklyn.test.entity.TestApplication;
 import brooklyn.test.entity.TestEntity;
 
 import com.google.common.base.Function;
@@ -35,28 +51,29 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Callables;
 
-public class FunctionFeedTest {
+public class FunctionFeedTest extends BrooklynAppUnitTestSupport {
 
     final static AttributeSensor<String> SENSOR_STRING = Sensors.newStringSensor("aString", "");
     final static AttributeSensor<Integer> SENSOR_INT = Sensors.newIntegerSensor("aLong", "");
 
     private Location loc;
-    private TestApplication app;
     private EntityLocal entity;
     private FunctionFeed feed;
     
     @BeforeMethod(alwaysRun=true)
+    @Override
     public void setUp() throws Exception {
+        super.setUp();
         loc = new LocalhostMachineProvisioningLocation();
-        app = ApplicationBuilder.newManagedApp(TestApplication.class);
         entity = app.createAndManageChild(EntitySpec.create(TestEntity.class));
         app.start(ImmutableList.of(loc));
     }
 
     @AfterMethod(alwaysRun=true)
+    @Override
     public void tearDown() throws Exception {
         if (feed != null) feed.stop();
-        if (app != null) Entities.destroyAll(app.getManagementContext());
+        super.tearDown();
     }
     
     @Test

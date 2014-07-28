@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package brooklyn.entity.basic;
 
 import static org.testng.Assert.assertEquals;
@@ -8,16 +26,15 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 
-import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.config.ConfigKey;
+import brooklyn.entity.BrooklynAppUnitTestSupport;
 import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.event.basic.BasicConfigKey;
 import brooklyn.event.basic.DependentConfiguration;
 import brooklyn.location.basic.SimulatedLocation;
-import brooklyn.test.entity.TestApplication;
 import brooklyn.test.entity.TestEntity;
 import brooklyn.util.exceptions.Exceptions;
 
@@ -29,7 +46,7 @@ import com.google.common.util.concurrent.Callables;
 /**
  * Test that configuration properties are usable and inherited correctly.
  */
-public class EntityConfigMapUsageTest {
+public class EntityConfigMapUsageTest extends BrooklynAppUnitTestSupport {
     private static final int EARLY_RETURN_GRACE = 10;
     
     private BasicConfigKey<Integer> intKey = new BasicConfigKey<Integer>(Integer.class, "bkey", "b key");
@@ -37,18 +54,13 @@ public class EntityConfigMapUsageTest {
     private ConfigKey<Integer> intKeyWithDefault = new BasicConfigKey<Integer>(Integer.class, "ckey", "c key", 1);
     private ConfigKey<String> strKeyWithDefault = new BasicConfigKey<String>(String.class, "strKey", "str key", "str key default");
     
-    private TestApplication app;
     private List<SimulatedLocation> locs;
     
-    @BeforeMethod
-    public void setUp() {
-        app = ApplicationBuilder.newManagedApp(TestApplication.class);
+    @BeforeMethod(alwaysRun=true)
+    @Override
+    public void setUp() throws Exception {
+        super.setUp();
         locs = ImmutableList.of(new SimulatedLocation());
-    }
-
-    @AfterMethod(alwaysRun = true)
-    public void tearDown(){
-        if (app != null) Entities.destroyAll(app.getManagementContext());
     }
 
     @Test

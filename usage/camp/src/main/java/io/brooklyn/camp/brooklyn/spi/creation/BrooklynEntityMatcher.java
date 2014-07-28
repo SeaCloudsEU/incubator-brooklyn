@@ -1,5 +1,24 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package io.brooklyn.camp.brooklyn.spi.creation;
 
+import io.brooklyn.camp.brooklyn.BrooklynCampConstants;
 import io.brooklyn.camp.spi.PlatformComponentTemplate;
 import io.brooklyn.camp.spi.PlatformComponentTemplate.Builder;
 import io.brooklyn.camp.spi.pdp.AssemblyTemplateConstructor;
@@ -12,16 +31,21 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.catalog.internal.BasicBrooklynCatalog;
 import brooklyn.entity.Entity;
 import brooklyn.management.ManagementContext;
+import brooklyn.management.classloading.BrooklynClassLoadingContext;
+import brooklyn.management.classloading.JavaBrooklynClassLoadingContext;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.config.ConfigBag;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.flags.FlagUtils;
 import brooklyn.util.flags.FlagUtils.FlagConfigKeyAndValueRecord;
+import brooklyn.util.net.Urls;
 import brooklyn.util.text.Strings;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 public class BrooklynEntityMatcher implements PdpMatcher {
 
@@ -43,9 +67,29 @@ public class BrooklynEntityMatcher implements PdpMatcher {
      * or null if not supported */
     protected String lookupType(Object deploymentPlanItem) {
         if (deploymentPlanItem instanceof Service) {
-            if (!BrooklynComponentTemplateResolver.Factory.supportsType(mgmt, ((Service)deploymentPlanItem).getServiceType()))
-                return null;
-            return ((Service)deploymentPlanItem).getServiceType();
+            Service service = (Service)deploymentPlanItem;
+            
+            String name = service.getName();
+            if (mgmt.getCatalog().getCatalogItem(name) != null) {
+                return name;
+            }
+
+            String serviceType = service.getServiceType();
+            BrooklynClassLoadingContext loader = BasicBrooklynCatalog.BrooklynLoaderTracker.getLoader();
+            if (loader == null) loader = JavaBrooklynClassLoadingContext.newDefault(mgmt);
+            if (BrooklynComponentTemplateResolver.Factory.supportsType(loader, serviceType))
+                return serviceType;
+
+            String protocol = Urls.getProtocol(serviceType);
+            if (protocol != null) {
+                if (BrooklynCampConstants.YAML_URL_PROTOCOL_WHITELIST.contains(protocol)) {
+                    return serviceType;
+                } else {
+                    log.warn("The reference '" + serviceType + "' looks like an URL but the protocol '" + 
+                            protocol + "' isn't white listed " + BrooklynCampConstants.YAML_URL_PROTOCOL_WHITELIST + ". " +
+                            "Not recognized as catalog item or java item as well!");
+                }
+            }
         }
         return null;
     }
@@ -110,48 +154,13 @@ public class BrooklynEntityMatcher implements PdpMatcher {
         // (any other brooklyn config goes here)
         if (!brooklynConfig.isEmpty())
             builder.customAttribute("brooklyn.config", brooklynConfig);
-        
-        List<Object> brooklynPolicies = Lists.newArrayList();
-        Object origBrooklynPolicies = attrs.remove("brooklyn.policies");
-        if (origBrooklynPolicies != null) {
-            if (!(origBrooklynPolicies instanceof List))
-                throw new IllegalArgumentException("brooklyn.policies must be a list of brooklyn policy definitions");
-            brooklynPolicies.addAll((List<?>)origBrooklynPolicies);
-        }
-        if (!brooklynPolicies.isEmpty())
-            builder.customAttribute("brooklyn.policies", brooklynPolicies);
-        
-        List<Object> brooklynEnrichers = Lists.newArrayList();
-        Object origBrooklynEnrichers = attrs.remove("brooklyn.enrichers");
-        if (origBrooklynEnrichers != null) {
-            if (!(origBrooklynEnrichers instanceof List))
-                throw new IllegalArgumentException("brooklyn.enrichers must be a list of brooklyn enricher definitions");
-            brooklynEnrichers.addAll((List<?>)origBrooklynEnrichers);
-        }
-        if (!brooklynEnrichers.isEmpty())
-            builder.customAttribute("brooklyn.enrichers", brooklynEnrichers);
 
-        List<Object> brooklynInitializers = Lists.newArrayList();
-        Object origBrooklynInitializers = attrs.remove("brooklyn.initializers");
-        if (origBrooklynInitializers != null) {
-            if (!(origBrooklynInitializers instanceof List))
-                throw new IllegalArgumentException("brooklyn.initializers must be a list of brooklyn initializer definitions");
-            brooklynInitializers.addAll((List<?>)origBrooklynInitializers);
-        }
-        if (!brooklynInitializers.isEmpty())
-            builder.customAttribute("brooklyn.initializers", brooklynInitializers);
+        addCustomListAttributeIfNonNull(builder, attrs, "brooklyn.policies");
+        addCustomListAttributeIfNonNull(builder, attrs, "brooklyn.enrichers");
+        addCustomListAttributeIfNonNull(builder, attrs, "brooklyn.initializers");
+        addCustomListAttributeIfNonNull(builder, attrs, "brooklyn.children");
+        addCustomMapAttributeIfNonNull(builder, attrs, "brooklyn.catalog");
 
-        List<Object> brooklynChildren = Lists.newArrayList();
-        Object origBrooklynChildren = attrs.remove("brooklyn.children");
-        if (origBrooklynChildren != null) {
-            if (!(origBrooklynChildren instanceof List))
-                throw new IllegalArgumentException("brooklyn.children must be a list of brooklyn entity definitions");
-            brooklynChildren.addAll((List<?>)origBrooklynChildren);
-        }
-        
-        if (!brooklynChildren.isEmpty())
-            builder.customAttribute("brooklyn.children",  brooklynChildren);
-        
         if (!attrs.isEmpty()) {
             log.warn("Ignoring PDP attributes on "+deploymentPlanItem+": "+attrs);
         }
@@ -161,6 +170,44 @@ public class BrooklynEntityMatcher implements PdpMatcher {
         return true;
     }
 
+    /**
+     * Looks for the given key in the map of attributes and adds it to the given builder
+     * as a custom attribute with type List.
+     * @throws java.lang.IllegalArgumentException if map[key] is not an instance of List
+     */
+    private void addCustomListAttributeIfNonNull(Builder<? extends PlatformComponentTemplate> builder, Map<?,?> attrs, String key) {
+        Object items = attrs.remove(key);
+        if (items != null) {
+            if (items instanceof List) {
+                List<?> itemList = (List<?>) items;
+                if (!itemList.isEmpty()) {
+                    builder.customAttribute(key, Lists.newArrayList(itemList));
+                }
+            } else {
+                throw new IllegalArgumentException(key + " must be a list, is: " + items.getClass().getName());
+            }
+        }
+    }
+
+    /**
+     * Looks for the given key in the map of attributes and adds it to the given builder
+     * as a custom attribute with type Map.
+     * @throws java.lang.IllegalArgumentException if map[key] is not an instance of Map
+     */
+    private void addCustomMapAttributeIfNonNull(Builder<? extends PlatformComponentTemplate> builder, Map<?,?> attrs, String key) {
+        Object items = attrs.remove(key);
+        if (items != null) {
+            if (items instanceof Map) {
+                Map<?, ?> itemMap = (Map<?, ?>) items;
+                if (!itemMap.isEmpty()) {
+                    builder.customAttribute(key, Maps.newHashMap(itemMap));
+                }
+            } else {
+                throw new IllegalArgumentException(key + " must be a map, is: " + items.getClass().getName());
+            }
+        }
+    }
+
     /** finds flags and keys on the given typeName which are present in the given map;
      * returns those (using the config key name), and removes them from attrs
      */
@@ -168,7 +215,7 @@ public class BrooklynEntityMatcher implements PdpMatcher {
         if (attrs==null || attrs.isEmpty())
             return null;
         try {
-            Class<Entity> type = BrooklynComponentTemplateResolver.Factory.newInstance(mgmt, typeName).loadEntityClass();
+            Class<? extends Entity> type = BrooklynComponentTemplateResolver.Factory.newInstance(JavaBrooklynClassLoadingContext.newDefault(mgmt), typeName).loadEntityClass();
             ConfigBag bag = ConfigBag.newInstance(attrs);
             List<FlagConfigKeyAndValueRecord> values = FlagUtils.findAllFlagsAndConfigKeys(null, type, bag);
             
