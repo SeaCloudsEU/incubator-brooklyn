@@ -23,6 +23,7 @@ import static brooklyn.util.GroovyJavaMethods.truth;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
@@ -38,6 +39,7 @@ import brooklyn.entity.basic.EntityFactoryForLocation;
 import brooklyn.entity.basic.EntityInternal;
 import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.basic.Lifecycle;
+import brooklyn.entity.basic.ServiceStateLogic;
 import brooklyn.entity.effector.Effectors;
 import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.trait.Changeable;
@@ -113,11 +115,11 @@ public class DynamicFabricImpl extends AbstractGroupImpl implements DynamicFabri
         Preconditions.checkArgument(locations.size() >= 1, "One or more location must be supplied");
         addLocations(locations);
         
-        MutableList<Location> newLocations = MutableList.copyOf(locations);
+        List<Location> newLocations = MutableList.copyOf(locations);
         if (newLocations.isEmpty()) newLocations.addAll(getLocations());
         int locIndex = 0;
         
-        setAttribute(SERVICE_STATE, Lifecycle.STARTING);
+        ServiceStateLogic.setExpectedState(this, Lifecycle.STARTING);
         try {
             Map<Entity, Task<?>> tasks = Maps.newLinkedHashMap();
             
@@ -125,6 +127,7 @@ public class DynamicFabricImpl extends AbstractGroupImpl implements DynamicFabri
             // if they have no locations yet
             for (Entity child: getChildren()) {
                 if (child instanceof Startable) {
+                    addMember(child);
                     Location it = null;
                     if (child.getLocations().isEmpty())
                         // give him any of these locations if he has none, allowing round robin here
@@ -156,10 +159,10 @@ public class DynamicFabricImpl extends AbstractGroupImpl implements DynamicFabri
             }
             
             waitForTasksOnStart(tasks);
-            setAttribute(SERVICE_STATE, Lifecycle.RUNNING);
+            ServiceStateLogic.setExpectedState(this, Lifecycle.RUNNING);
             setAttribute(SERVICE_UP, true);
         } catch (Exception e) {
-            setAttribute(SERVICE_STATE, Lifecycle.ON_FIRE);
+            ServiceStateLogic.setExpectedState(this, Lifecycle.ON_FIRE);
             throw Exceptions.propagate(e);
         }
     }
@@ -181,15 +184,15 @@ public class DynamicFabricImpl extends AbstractGroupImpl implements DynamicFabri
     
     @Override
     public void stop() {
-        setAttribute(SERVICE_STATE, Lifecycle.STOPPING);
+        ServiceStateLogic.setExpectedState(this, Lifecycle.STOPPING);
         try {
             Iterable<Entity> stoppableChildren = Iterables.filter(getChildren(), Predicates.instanceOf(Startable.class));
             Task<?> invoke = Entities.invokeEffector(this, stoppableChildren, Startable.STOP);
 	        if (invoke != null) invoke.get();
-            setAttribute(SERVICE_STATE, Lifecycle.STOPPED);
+	        ServiceStateLogic.setExpectedState(this, Lifecycle.STOPPED);
             setAttribute(SERVICE_UP, false);
         } catch (Exception e) {
-            setAttribute(SERVICE_STATE, Lifecycle.ON_FIRE);
+            ServiceStateLogic.setExpectedState(this, Lifecycle.ON_FIRE);
             throw Exceptions.propagate(e);
         }
     }

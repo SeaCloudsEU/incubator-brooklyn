@@ -36,7 +36,6 @@ import brooklyn.catalog.CatalogItem;
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.Application;
 import brooklyn.entity.Entity;
-import brooklyn.entity.basic.AbstractApplication;
 import brooklyn.entity.basic.AbstractEntity;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.EntityInternal;
@@ -61,7 +60,6 @@ import brooklyn.util.javalang.Reflections;
 import brooklyn.util.text.Strings;
 
 import com.google.common.base.Function;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 
@@ -197,7 +195,10 @@ public class BrooklynComponentTemplateResolver {
 
     /** returns the entity class, if needed in contexts which scan its statics for example */
     public Class<? extends Entity> loadEntityClass() {
-        return tryLoadEntityClass().get();
+        Maybe<Class<? extends Entity>> result = tryLoadEntityClass();
+        if (result.isAbsent())
+            throw new IllegalStateException("Could not find "+getBrooklynType(), ((Maybe.Absent<?>)result).getException());
+        return result.get();
     }
     
     /** tries to load the Java entity class */
@@ -241,7 +242,6 @@ public class BrooklynComponentTemplateResolver {
         } else {
             // If this is a concrete class, particularly for an Application class, we want the proxy
             // to expose all interfaces it implements.
-            @SuppressWarnings("rawtypes")
             Class interfaceclazz = (Application.class.isAssignableFrom(type)) ? Application.class : Entity.class;
             List<Class<?>> additionalInterfaceClazzes = Reflections.getAllInterfaces(type);
             spec = EntitySpec.create(interfaceclazz).impl(type).additionalInterfaces(additionalInterfaceClazzes);
@@ -292,22 +292,11 @@ public class BrooklynComponentTemplateResolver {
         Class<? extends T> entityImpl = (spec.getImplementation() != null) ? spec.getImplementation() : mgmt.getEntityManager().getEntityTypeRegistry().getImplementedBy(spec.getType());
         InternalEntityFactory entityFactory = ((ManagementContextInternal)mgmt).getEntityFactory();
         T entity = entityFactory.constructEntity(entityImpl, spec);
-        if (entity instanceof AbstractApplication) {
-            FlagUtils.setFieldsFromFlags(ImmutableMap.of("mgmt", mgmt), entity);
-        }
 
-        // TODO Some of the code below could go into constructEntity?
-        if (spec.getId() != null) {
-            FlagUtils.setFieldsFromFlags(ImmutableMap.of("id", spec.getId()), entity);
-        }
         String planId = (String)spec.getConfig().get(BrooklynCampConstants.PLAN_ID.getConfigKey());
         if (planId != null) {
             ((EntityInternal)entity).setConfig(BrooklynCampConstants.PLAN_ID, planId);
         }
-        ((ManagementContextInternal)mgmt).prePreManage(entity);
-        ((AbstractEntity)entity).setManagementContext((ManagementContextInternal)mgmt);
-        
-        ((AbstractEntity)entity).setProxy(entityFactory.createEntityProxy(spec, entity));
         
         if (spec.getLocations().size() > 0) {
             ((AbstractEntity)entity).addLocations(spec.getLocations());

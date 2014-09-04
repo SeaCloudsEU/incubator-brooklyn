@@ -29,7 +29,11 @@ import io.airlift.command.Option;
 import io.airlift.command.OptionType;
 import io.airlift.command.ParseException;
 
+import java.io.Console;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.PrintStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
@@ -62,6 +66,8 @@ import brooklyn.launcher.BrooklynServerDetails;
 import brooklyn.launcher.config.StopWhichAppsOnShutdown;
 import brooklyn.management.ManagementContext;
 import brooklyn.management.ha.HighAvailabilityMode;
+import brooklyn.mementos.BrooklynMemento;
+import brooklyn.rest.security.PasswordHasher;
 import brooklyn.util.ResourceUtils;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.exceptions.FatalConfigurationRuntimeException;
@@ -70,6 +76,8 @@ import brooklyn.util.exceptions.UserFacingException;
 import brooklyn.util.guava.Maybe;
 import brooklyn.util.javalang.Enums;
 import brooklyn.util.net.Networking;
+import brooklyn.util.os.Os;
+import brooklyn.util.text.Identifiers;
 import brooklyn.util.text.StringEscapes.JavaStringEscapes;
 import brooklyn.util.text.Strings;
 
@@ -127,6 +135,15 @@ public class Main {
         @Option(type = OptionType.GLOBAL, name = { "-q", "--quiet" }, description = "Quiet mode")
         public boolean quiet = false;
 
+        @VisibleForTesting
+        protected PrintStream stdout = System.out;
+        
+        @VisibleForTesting
+        protected PrintStream stderr = System.err;
+
+        @VisibleForTesting
+        protected InputStream stdin = System.in;
+
         public ToStringHelper string() {
             return Objects.toStringHelper(getClass())
                     .add("verbose", verbose)
@@ -147,14 +164,14 @@ public class Main {
         public List<String> arguments = new ArrayList<String>();
         
         /** @return true iff there are arguments; it also sys.errs a warning in that case  */
-        protected boolean warnIfNoArguments() {
+        protected boolean warnIfArguments() {
             if (arguments.isEmpty()) return false;
-            System.err.println("Invalid subcommand arguments: "+Strings.join(arguments, " "));
+            stderr.println("Invalid subcommand arguments: "+Strings.join(arguments, " "));
             return true;
         }
         
         /** throw {@link ParseException} iff there are arguments */
-        protected void failIfNoArguments() {
+        protected void failIfArguments() {
             if (arguments.isEmpty()) return ;
             throw new ParseException("Invalid subcommand arguments '"+Strings.join(arguments, " ")+"'");
         }
@@ -185,14 +202,10 @@ public class Main {
         @Override
         public Void call() throws Exception {
             if (log.isDebugEnabled()) log.debug("Invoked info command: {}", this);
-            warnIfNoArguments();
+            warnIfArguments();
 
-            // Get current version
-            String version = BrooklynVersion.get();
-
-            // Display info text
             System.out.println(BANNER);
-            System.out.println("Version:  " + version);
+            System.out.println("Version:  " + BrooklynVersion.get());
             System.out.println("Website:  http://brooklyn.incubator.apache.org");
             System.out.println("Source:   https://github.com/apache/incubator-brooklyn");
             System.out.println();
@@ -204,6 +217,76 @@ public class Main {
         }
     }
 
+    @Command(name = "generate-password", description = "Generates a hashed web-console password")
+    public static class GeneratePasswordCommand extends BrooklynCommandCollectingArgs {
+
+        @Option(name = { "--user" }, title = "username", required = true)
+        public String user;
+
+        @Option(name = { "--stdin" }, title = "read password from stdin, instead of console", 
+                description = "Before using stdin, read http://stackoverflow.com/a/715681/1393883 for discussion of security!")
+        public boolean useStdin;
+
+        @Override
+        public Void call() throws Exception {
+            checkCanReadPassword();
+            
+            System.out.print("Enter password: ");
+            System.out.flush();
+            String password = readPassword();
+            if (Strings.isBlank(password)) {
+                throw new UserFacingException("Password must not be blank; aborting");
+            }
+            
+            System.out.print("Re-enter password: ");
+            System.out.flush();
+            String password2 = readPassword();
+            if (!password.equals(password2)) {
+                throw new UserFacingException("Passwords did not match; aborting");
+            }
+
+            String salt = Identifiers.makeRandomId(4);
+            String sha256password = PasswordHasher.sha256(salt, new String(password));
+            
+            System.out.println();
+            System.out.println("Please add the following to your brooklyn.properties:");
+            System.out.println();
+            System.out.println("brooklyn.webconsole.security.users="+user);
+            System.out.println("brooklyn.webconsole.security.user."+user+".salt="+salt);
+            System.out.println("brooklyn.webconsole.security.user."+user+".sha256="+sha256password);
+
+            return null;
+        }
+        
+        private void checkCanReadPassword() {
+            if (useStdin) {
+                // yes; always
+            } else {
+                Console console = System.console();
+                if (console == null) {
+                    throw new FatalConfigurationRuntimeException("No console; cannot get password securely; aborting");
+                }
+            }
+        }
+        
+        private String readPassword() throws IOException {
+            if (useStdin) {
+                return readLine(System.in);
+            } else {
+                return new String(System.console().readPassword());
+            }
+        }
+        
+        private String readLine(InputStream in) throws IOException {
+            StringBuilder result = new StringBuilder();
+            char c;
+            while ((c = (char)in.read()) != '\n') {
+                result.append(c);
+            }
+            return result.toString();
+        }
+    }
+    
     @Command(name = "launch", description = "Starts a server, optionally with applications")
     public static class LaunchCommand extends BrooklynCommandCollectingArgs {
 
@@ -251,11 +334,11 @@ public class Main {
         public Boolean noConsoleSecurity = false;
 
         @Option(name = { "--ignoreWebStartupErrors" },
-            description = "Ignore web subsystem failures on startup (default is to abort if that fails to start)")
+            description = "Ignore web subsystem failures on startup (default is to abort if it fails to start)")
         public boolean ignoreWebErrors = false;
 
         @Option(name = { "--ignorePersistenceStartupErrors" },
-            description = "Ignore persistence/HA subsystem failures on startup (default is to abort if that fails to start)")
+            description = "Ignore persistence/HA subsystem failures on startup (default is to abort if it fails to start)")
         public boolean ignorePersistenceErrors = false;
 
         @Option(name = { "--ignoreManagedAppsStartupErrors" },
@@ -319,11 +402,11 @@ public class Main {
         public String persist = PERSIST_OPTION_DISABLED;
 
         @Option(name = { "--persistenceDir" }, title = "persistence dir",
-                description = "the directory to read/write persisted state (or container name if using an object store)")
+                description = "The directory to read/write persisted state (or container name if using an object store)")
         public String persistenceDir;
 
         @Option(name = { "--persistenceLocation" }, title = "persistence location",
-            description = "the location spec for an object store to read/write persisted state")
+            description = "The location spec for an object store to read/write persisted state")
         public String persistenceLocation;
     
 
@@ -351,17 +434,17 @@ public class Main {
         public Void call() throws Exception {
             // Configure launcher
             BrooklynLauncher launcher;
-            failIfNoArguments();
+            failIfArguments();
             try {
                 if (log.isDebugEnabled()) log.debug("Invoked launch command {}", this);
                 
-                if (!quiet) System.out.println(BANNER);
+                if (!quiet) stdout.println(BANNER);
     
                 if (verbose) {
                     if (app != null) {
-                        System.out.println("Launching brooklyn app: " + app + " in " + locations);
+                        stdout.println("Launching brooklyn app: " + app + " in " + locations);
                     } else {
-                        System.out.println("Launching brooklyn server (no app)");
+                        stdout.println("Launching brooklyn server (no app)");
                     }
                 }
     
@@ -590,7 +673,7 @@ public class Main {
             if (stopOnKeyPress) {
                 // Wait for the user to type a key
                 log.info("Server started. Press return to stop.");
-                System.in.read();
+                stdin.read();
                 stopAllApps(ctx.getApplications());
             } else {
                 // Block forever so that Brooklyn doesn't exit (until someone does cntrl-c or kill)
@@ -706,8 +789,92 @@ public class Main {
                     .add("stopOnKeyPress", stopOnKeyPress)
                     .add("localBrooklynProperties", localBrooklynProperties)
                     .add("persist", persist)
+                    .add("persistenceLocation", persistenceLocation)
                     .add("persistenceDir", persistenceDir)
                     .add("highAvailability", highAvailability);
+        }
+    }
+
+    @Command(name = "copy-state", description = "Retrieves persisted state")
+    public static class CopyStateCommand extends BrooklynCommandCollectingArgs {
+
+        @Option(name = { "--localBrooklynProperties" }, title = "local brooklyn.properties file",
+                description = "local brooklyn.properties file, specific to this launch (appending to and overriding global properties)")
+        public String localBrooklynProperties;
+
+        @Option(name = { "--persistenceDir" }, title = "persistence dir",
+                description = "The directory to read/write persisted state (or container name if using an object store)")
+        public String persistenceDir;
+
+        @Option(name = { "--persistenceLocation" }, title = "persistence location",
+            description = "The location spec for an object store to read/write persisted state")
+        public String persistenceLocation;
+    
+        @Option(name = { "--destinationDir" }, required = true, title = "destination dir",
+                description = "The directory to copy persistence data to")
+            public String destinationDir;
+        
+        @Override
+        public Void call() throws Exception {
+            File destinationDirF = new File(Os.tidyPath(destinationDir));
+            if (destinationDirF.isFile()) throw new FatalConfigurationRuntimeException("Destination directory is a file: "+destinationDir);
+
+
+            // Configure launcher
+            BrooklynLauncher launcher;
+            failIfArguments();
+            try {
+                log.info("Retrieving and copying persisted state to "+destinationDirF.getAbsolutePath());
+                
+                if (!quiet) stdout.println(BANNER);
+    
+                PersistMode persistMode = PersistMode.AUTO;
+                HighAvailabilityMode highAvailabilityMode = HighAvailabilityMode.DISABLED;
+                
+                launcher = BrooklynLauncher.newInstance()
+                        .localBrooklynPropertiesFile(localBrooklynProperties)
+                        .persistMode(persistMode)
+                        .persistenceDir(persistenceDir)
+                        .persistenceLocation(persistenceLocation)
+                        .highAvailabilityMode(highAvailabilityMode);
+                
+            } catch (FatalConfigurationRuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new FatalConfigurationRuntimeException("Fatal error configuring Brooklyn launch: "+e.getMessage(), e);
+            }
+            
+            try {
+                BrooklynMemento memento = launcher.retrieveState();
+                launcher.persistState(memento, destinationDirF);
+                
+            } catch (FatalRuntimeException e) {
+                // rely on caller logging this propagated exception
+                throw e;
+            } catch (Exception e) {
+                // for other exceptions we log it, possibly redundantly but better too much than too little
+                Exceptions.propagateIfFatal(e);
+                log.error("Error retrieving persisted state: "+Exceptions.collapseText(e), e);
+                Exceptions.propagate(e);
+            } finally {
+                try {
+                    launcher.terminate();
+                } catch (Exception e2) {
+                    log.warn("Subsequent error during termination: "+e2);
+                    log.debug("Details of subsequent error during termination: "+e2, e2);
+                }
+            }
+            
+            return null;
+        }
+
+        @Override
+        public ToStringHelper string() {
+            return super.string()
+                    .add("localBrooklynProperties", localBrooklynProperties)
+                    .add("persistenceLocation", persistenceLocation)
+                    .add("persistenceDir", persistenceDir)
+                    .add("destinationDir", destinationDir);
         }
     }
 
@@ -726,6 +893,8 @@ public class Main {
                 .withCommands(
                         HelpCommand.class,
                         InfoCommand.class,
+                        GeneratePasswordCommand.class,
+                        CopyStateCommand.class,
                         cliLaunchCommand()
                 );
 

@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,6 +43,7 @@ import org.slf4j.LoggerFactory;
 import brooklyn.config.BrooklynProperties;
 import brooklyn.config.ConfigKey;
 import brooklyn.config.ConfigKey.HasConfigKey;
+import brooklyn.enricher.basic.AbstractEnricher;
 import brooklyn.entity.Application;
 import brooklyn.entity.Effector;
 import brooklyn.entity.Entity;
@@ -68,6 +70,7 @@ import brooklyn.management.internal.EffectorUtils;
 import brooklyn.management.internal.LocalManagementContext;
 import brooklyn.management.internal.ManagementContextInternal;
 import brooklyn.management.internal.NonDeploymentManagementContext;
+import brooklyn.policy.Enricher;
 import brooklyn.policy.Policy;
 import brooklyn.policy.basic.AbstractPolicy;
 import brooklyn.util.ResourceUtils;
@@ -80,6 +83,7 @@ import brooklyn.util.repeat.Repeater;
 import brooklyn.util.stream.Streams;
 import brooklyn.util.task.DynamicTasks;
 import brooklyn.util.task.ParallelTask;
+import brooklyn.util.task.TaskTags;
 import brooklyn.util.task.Tasks;
 import brooklyn.util.task.system.ProcessTaskWrapper;
 import brooklyn.util.task.system.SystemTasks;
@@ -161,7 +165,7 @@ public class Entities {
                         "description", "Invoking effector \""+effector.getName()+"\" on "+tasks.size()+(tasks.size() == 1 ? " entity" : " entities"),
                         "tag", BrooklynTaskTags.tagForCallerEntity(callingEntity)),
                 tasks);
-        
+        TaskTags.markInessential(invoke);
         return DynamicTasks.queueIfPossible(invoke).orSubmitAsync(callingEntity).asTask();
     }
     public static <T> Task<List<T>> invokeEffectorListWithMap(EntityLocal callingEntity, Iterable<? extends Entity> entitiesToCall,
@@ -183,11 +187,18 @@ public class Entities {
     public static <T> Task<T> invokeEffector(EntityLocal callingEntity, Entity entityToCall,
             final Effector<T> effector, final Map<String,?> parameters) {
         Task<T> t = Effectors.invocation(entityToCall, effector, parameters).asTask();
+        TaskTags.markInessential(t);
         
-        // we pass to callingEntity for consistency above, but in exec-context it should be
-        // re-dispatched to targetEntity
-        ((EntityInternal)callingEntity).getManagementSupport().getExecutionContext().submit(
+        // we pass to callingEntity for consistency above, but in exec-context it should be re-dispatched to targetEntity
+        // reassign t as the return value may be a wrapper, if it is switching execution contexts; see submitInternal's javadoc
+        t = ((EntityInternal)callingEntity).getManagementSupport().getExecutionContext().submit(
                 MutableMap.of("tag", BrooklynTaskTags.tagForCallerEntity(callingEntity)), t);
+        
+        if (DynamicTasks.getTaskQueuingContext()!=null) {
+            // include it as a child (in the gui), marked inessential, because the caller is invoking programmatically
+            DynamicTasks.queue(t);
+        }
+        
         return t;
     }
     @SuppressWarnings("unchecked")
@@ -271,7 +282,7 @@ public class Entities {
         dumpInfo(e, new PrintWriter(System.out), currentIndentation, tab);
     }
     public static void dumpInfo(Entity e, Writer out, String currentIndentation, String tab) throws IOException {
-        out.append(currentIndentation+e.toString()+"\n");
+        out.append(currentIndentation+e.toString()+" "+e.getId()+"\n");
 
         out.append(currentIndentation+tab+tab+"locations = "+e.getLocations()+"\n");
 
@@ -322,14 +333,24 @@ public class Entities {
         if (e instanceof Group) {
             StringBuilder members = new StringBuilder();
             for (Entity it : ((Group)e).getMembers()) {
-                members.append(it.getId()+", ");
+                if (members.length()>0) members.append(", ");
+                members.append(it.getId());
             }
             out.append(currentIndentation+tab+tab+"Members: "+members.toString()+"\n");
         }
 
-        out.append(currentIndentation+tab+tab+"Policies:\n");
-        for (Policy policy : e.getPolicies()) {
-            dumpInfo(policy, out, currentIndentation+tab+tab+tab, tab);
+        if (!e.getPolicies().isEmpty()) {
+            out.append(currentIndentation+tab+tab+"Policies:\n");
+            for (Policy policy : e.getPolicies()) {
+                dumpInfo(policy, out, currentIndentation+tab+tab+tab, tab);
+            }
+        }
+
+        if (!e.getEnrichers().isEmpty()) {
+            out.append(currentIndentation+tab+tab+"Enrichers:\n");
+            for (Enricher enricher : e.getEnrichers()) {
+                dumpInfo(enricher, out, currentIndentation+tab+tab+tab, tab);
+            }
         }
 
         for (Entity it : e.getChildren()) {
@@ -390,6 +411,37 @@ public class Entities {
 
         for (Location it : loc.getChildren()) {
             dumpInfo(it, out, currentIndentation+tab, tab);
+        }
+
+        out.flush();
+    }
+
+    public static void dumpInfo(Enricher enr) {
+        try {
+            dumpInfo(enr, new PrintWriter(System.out), "", "  ");
+        } catch (IOException exc) {
+            // system.out throwing an exception is odd, so don't have IOException on signature
+            throw new RuntimeException(exc);
+        }
+    }
+    public static void dumpInfo(Enricher enr, Writer out) throws IOException {
+        dumpInfo(enr, out, "", "  ");
+    }
+    public static void dumpInfo(Enricher enr, String currentIndentation, String tab) throws IOException {
+        dumpInfo(enr, new PrintWriter(System.out), currentIndentation, tab);
+    }
+    public static void dumpInfo(Enricher enr, Writer out, String currentIndentation, String tab) throws IOException {
+        out.append(currentIndentation+enr.toString()+"\n");
+
+        for (ConfigKey<?> key : sortConfigKeys(enr.getEnricherType().getConfigKeys())) {
+            Maybe<Object> val = ((AbstractEnricher)enr).getConfigMap().getConfigRaw(key, true);
+            if (!isTrivial(val)) {
+                out.append(currentIndentation+tab+tab+key);
+                out.append(" = ");
+                if (isSecret(key.getName())) out.append("xxxxxxxx");
+                else out.append(""+val.get());
+                out.append("\n");
+            }
         }
 
         out.flush();
@@ -527,6 +579,33 @@ public class Entities {
         return Iterables.filter(descendants(root), ofType);
     }
     
+    /**
+     * returns the entity, its parent, its parent, and so on. */ 
+    public static Iterable<Entity> ancestors(final Entity root) {
+        return new Iterable<Entity>() {
+            @Override
+            public Iterator<Entity> iterator() {
+                return new Iterator<Entity>() {
+                    Entity next = root;
+                    @Override
+                    public boolean hasNext() {
+                        return next!=null;
+                    }
+                    @Override
+                    public Entity next() {
+                        Entity result = next;
+                        next = next.getParent();
+                        return result;
+                    }
+                    @Override
+                    public void remove() {
+                        throw new UnsupportedOperationException();
+                    }
+                };
+            }
+        };
+    }
+
     /**
      * Registers a {@link BrooklynShutdownHooks#invokeStopOnShutdown(Entity)} to shutdown this entity when the JVM exits.
      * (Convenience method located in this class for easy access.)
@@ -802,11 +881,21 @@ public class Entities {
         }
         return url;
     }
+    
     /** as {@link #getRequiredUrlConfig(Entity, ConfigKey)} */
     public static String getRequiredUrlConfig(Entity entity, HasConfigKey<String> urlKey) {
         return getRequiredUrlConfig(entity, urlKey.getConfigKey());
     }
     
+    /** fails-fast if value of the given URL is null or unresolveable */
+    public static String checkRequiredUrl(Entity entity, String url) {
+        Preconditions.checkNotNull(url, "url");
+        if (!ResourceUtils.create(entity).doesUrlExist(url)) {
+            throw new IllegalStateException(String.format("URL %s on %s is unavailable", url, entity));
+        }
+        return url;
+    }
+
     /** submits a task factory to construct its task at the entity (in a precursor task) and then to submit it;
      * important if e.g. task construction relies on an entity being in scope (in tags, via {@link BrooklynTaskTags}) */
     public static <T extends TaskAdaptable<?>> T submit(final Entity entity, final TaskFactory<T> taskFactory) {

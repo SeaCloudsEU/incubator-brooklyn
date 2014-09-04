@@ -38,6 +38,7 @@ import brooklyn.entity.basic.DynamicGroup;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityPredicates;
 import brooklyn.entity.basic.Lifecycle;
+import brooklyn.entity.basic.ServiceStateLogic.ServiceNotUpLogic;
 import brooklyn.entity.effector.EffectorBody;
 import brooklyn.entity.group.AbstractMembershipTrackingPolicy;
 import brooklyn.entity.group.DynamicClusterImpl;
@@ -111,24 +112,24 @@ public class CassandraDatacenterImpl extends DynamicClusterImpl implements Cassa
                     return ImmutableSet.of();
                 } else if (hasPublishedSeeds) {
                     Set<Entity> currentSeeds = getAttribute(CURRENT_SEEDS);
-                    if (getAttribute(SERVICE_STATE) == Lifecycle.STARTING) {
+                    if (getAttribute(SERVICE_STATE_ACTUAL) == Lifecycle.STARTING) {
                         if (Sets.intersection(currentSeeds, potentialSeeds).isEmpty()) {
-                            log.warn("Cluster {} lost all its seeds while starting! Subsequent failure likely, but changing seeds during startup would risk split-brain: seeds={}", new Object[] {this, currentSeeds});
+                            log.warn("Cluster {} lost all its seeds while starting! Subsequent failure likely, but changing seeds during startup would risk split-brain: seeds={}", new Object[] {CassandraDatacenterImpl.this, currentSeeds});
                         }
                         return currentSeeds;
                     } else if (potentialRunningSeeds.isEmpty()) {
                         // TODO Could be race where nodes have only just returned from start() and are about to 
                         // transition to serviceUp; so don't just abandon all our seeds!
-                        log.warn("Cluster {} has no running seeds (yet?); leaving seeds as-is; but risks split-brain if these seeds come back up!", new Object[] {this});
+                        log.warn("Cluster {} has no running seeds (yet?); leaving seeds as-is; but risks split-brain if these seeds come back up!", new Object[] {CassandraDatacenterImpl.this});
                         return currentSeeds;
                     } else {
                         Set<Entity> result = trim(quorumSize, potentialRunningSeeds);
-                        log.debug("Cluster {} updating seeds: chosen={}; potentialRunning={}", new Object[] {this, result, potentialRunningSeeds});
+                        log.debug("Cluster {} updating seeds: chosen={}; potentialRunning={}", new Object[] {CassandraDatacenterImpl.this, result, potentialRunningSeeds});
                         return result;
                     }
                 } else {
                     Set<Entity> result = trim(quorumSize, potentialSeeds);
-                    if (log.isDebugEnabled()) log.debug("Cluster {} has reached seed quorum: seeds={}", new Object[] {this, result});
+                    if (log.isDebugEnabled()) log.debug("Cluster {} has reached seed quorum: seeds={}", new Object[] {CassandraDatacenterImpl.this, result});
                     return result;
                 }
             }
@@ -145,7 +146,6 @@ public class CassandraDatacenterImpl extends DynamicClusterImpl implements Cassa
     
     protected SeedTracker seedTracker = new SeedTracker();
     protected TokenGenerator tokenGenerator = null;
-    private MemberTrackingPolicy policy;
 
     public CassandraDatacenterImpl() {
     }
@@ -173,6 +173,15 @@ public class CassandraDatacenterImpl extends DynamicClusterImpl implements Cassa
             @Override
             public void onEvent(SensorEvent<Boolean> event) {
                 seedTracker.onServiceUpChanged(event.getSource(), event.getValue());
+            }
+        });
+        subscribeToMembers(this, Attributes.SERVICE_STATE_ACTUAL, new SensorEventListener<Lifecycle>() {
+            @Override
+            public void onEvent(SensorEvent<Lifecycle> event) {
+                // trigger a recomputation also when lifecycle state changes, 
+                // because it might not have ruled a seed as inviable when service up went true 
+                // because service state was not yet running
+                seedTracker.onServiceUpChanged(event.getSource(), Lifecycle.RUNNING==event.getValue());
             }
         });
         
@@ -229,6 +238,10 @@ public class CassandraDatacenterImpl extends DynamicClusterImpl implements Cassa
         return (seedSupplier == null) ? defaultSeedSupplier : seedSupplier;
     }
     
+    protected boolean useVnodes() {
+        return Boolean.TRUE.equals(getConfig(USE_VNODES));
+    }
+    
     protected synchronized TokenGenerator getTokenGenerator() {
         if (tokenGenerator!=null) 
             return tokenGenerator;
@@ -281,20 +294,35 @@ public class CassandraDatacenterImpl extends DynamicClusterImpl implements Cassa
 
     @Override
     public Collection<Entity> grow(int delta) {
-        if (getCurrentSize() == 0) {
-            getTokenGenerator().growingCluster(delta);
+        if (useVnodes()) {
+            // nothing to do for token generator
+        } else {
+            if (getCurrentSize() == 0) {
+                getTokenGenerator().growingCluster(delta);
+            }
         }
         return super.grow(delta);
     }
     
+    @SuppressWarnings("deprecation")
     @Override
     protected Entity createNode(@Nullable Location loc, Map<?,?> flags) {
-        Map<?,?> allflags; 
-        if (flags.containsKey(CassandraNode.TOKEN) || flags.containsKey("token")) {
-            allflags = flags;
-        } else {
+        Map<Object, Object> allflags = MutableMap.copyOf(flags);
+        
+        if ((flags.containsKey(CassandraNode.TOKEN) || flags.containsKey("token")) || (flags.containsKey(CassandraNode.TOKENS) || flags.containsKey("tokens"))) {
+            // leave token config as-is
+        } else if (!useVnodes()) {
             BigInteger token = getTokenGenerator().newToken();
-            allflags = (token == null) ? flags : MutableMap.builder().putAll(flags).put(CassandraNode.TOKEN, token).build();
+            allflags.put(CassandraNode.TOKEN, token);
+        }
+
+        if ((flags.containsKey(CassandraNode.NUM_TOKENS_PER_NODE) || flags.containsKey("numTokensPerNode"))) {
+            // leave num_tokens as-is
+        } else if (useVnodes()) {
+            Integer numTokensPerNode = getConfig(NUM_TOKENS_PER_NODE);
+            allflags.put(CassandraNode.NUM_TOKENS_PER_NODE, numTokensPerNode);
+        } else {
+            allflags.put(CassandraNode.NUM_TOKENS_PER_NODE, 1);
         }
         
         return super.createNode(loc, allflags);
@@ -302,9 +330,9 @@ public class CassandraDatacenterImpl extends DynamicClusterImpl implements Cassa
 
     @Override
     protected Entity replaceMember(Entity member, Location memberLoc, Map<?, ?> extraFlags) {
-        BigInteger oldToken = ((CassandraNode) member).getToken();
-        BigInteger newToken = (oldToken != null) ? getTokenGenerator().getTokenForReplacementNode(oldToken) : null;
-        return super.replaceMember(member, memberLoc,  MutableMap.copyOf(extraFlags).add(CassandraNode.TOKEN, newToken));
+        Set<BigInteger> oldTokens = ((CassandraNode) member).getTokens();
+        Set<BigInteger> newTokens = (oldTokens != null && oldTokens.size() > 0) ? getTokenGenerator().getTokensForReplacementNode(oldTokens) : null;
+        return super.replaceMember(member, memberLoc,  MutableMap.copyOf(extraFlags).add(CassandraNode.TOKENS, newTokens));
     }
 
     @Override
@@ -338,7 +366,7 @@ public class CassandraDatacenterImpl extends DynamicClusterImpl implements Cassa
     protected void connectSensors() {
         connectEnrichers();
         
-        policy = addPolicy(PolicySpec.create(MemberTrackingPolicy.class)
+        addPolicy(PolicySpec.create(MemberTrackingPolicy.class)
                 .displayName("Cassandra Cluster Tracker")
                 .configure("sensorsToTrack", ImmutableSet.of(Attributes.SERVICE_UP, Attributes.HOSTNAME, CassandraNode.THRIFT_PORT))
                 .configure("group", this));
@@ -408,12 +436,6 @@ public class CassandraDatacenterImpl extends DynamicClusterImpl implements Cassa
                     .build());
 
         }
-
-        subscribeToMembers(this, SERVICE_UP, new SensorEventListener<Boolean>() {
-            @Override public void onEvent(SensorEvent<Boolean> event) {
-                setAttribute(SERVICE_UP, calculateServiceUp());
-            }
-        });
     }
 
     @Override
@@ -459,17 +481,9 @@ public class CassandraDatacenterImpl extends DynamicClusterImpl implements Cassa
                 setAttribute(THRIFT_PORT, null);
                 setAttribute(CASSANDRA_CLUSTER_NODES, Collections.<String>emptyList());
             }
-            
-            setAttribute(SERVICE_UP, upNode.isPresent() && calculateServiceUp());
+
+            ServiceNotUpLogic.updateNotUpIndicatorRequiringNonEmptyList(this, CASSANDRA_CLUSTER_NODES);
         }
-    }
-    
-    @Override
-    protected boolean calculateServiceUp() {
-        if (!super.calculateServiceUp()) return false;
-        List<String> nodes = getAttribute(CASSANDRA_CLUSTER_NODES);
-        if (nodes==null || nodes.isEmpty()) return false;
-        return true;
     }
     
     /**
@@ -582,7 +596,7 @@ public class CassandraDatacenterImpl extends DynamicClusterImpl implements Cassa
             boolean managed = Entities.isManaged(member);
             String hostname = member.getAttribute(Attributes.HOSTNAME);
             boolean serviceUp = Boolean.TRUE.equals(member.getAttribute(Attributes.SERVICE_UP));
-            Lifecycle serviceState = member.getAttribute(Attributes.SERVICE_STATE);
+            Lifecycle serviceState = member.getAttribute(Attributes.SERVICE_STATE_ACTUAL);
             boolean hasFailed = !managed || (serviceState == Lifecycle.ON_FIRE) || (serviceState == Lifecycle.RUNNING && !serviceUp) || (serviceState == Lifecycle.STOPPED);
             boolean result = (hostname != null && !hasFailed);
             if (log.isTraceEnabled()) log.trace("Node {} in Cluster {}: viableSeed={}; hostname={}; serviceUp={}; serviceState={}; hasFailed={}", new Object[] {member, this, result, hostname, serviceUp, serviceState, hasFailed});
@@ -591,7 +605,7 @@ public class CassandraDatacenterImpl extends DynamicClusterImpl implements Cassa
         public boolean isRunningSeed(Entity member) {
             boolean viableSeed = isViableSeed(member);
             boolean serviceUp = Boolean.TRUE.equals(member.getAttribute(Attributes.SERVICE_UP));
-            Lifecycle serviceState = member.getAttribute(Attributes.SERVICE_STATE);
+            Lifecycle serviceState = member.getAttribute(Attributes.SERVICE_STATE_ACTUAL);
             boolean result = viableSeed && serviceUp && serviceState == Lifecycle.RUNNING;
             if (log.isTraceEnabled()) log.trace("Node {} in Cluster {}: runningSeed={}; viableSeed={}; serviceUp={}; serviceState={}", new Object[] {member, this, result, viableSeed, serviceUp, serviceState});
             return result;

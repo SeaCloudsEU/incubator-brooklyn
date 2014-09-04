@@ -100,7 +100,7 @@ public class BrooklynRestResourceUtilsTest {
         assertEquals(subentityRetrieved.getDisplayName(), "subentity");
         
         Policy subappPolicy = util.getPolicy(app.getId(), subentity.getId(), "mypolicy");
-        assertEquals(subappPolicy.getName(), "mypolicy");
+        assertEquals(subappPolicy.getDisplayName(), "mypolicy");
     }
 
     public interface MyInterface {
@@ -110,10 +110,6 @@ public class BrooklynRestResourceUtilsTest {
             description="Application which does nothing, included only as part of the test cases.",
             iconUrl="")
     public static class SampleNoOpApplication extends AbstractApplication implements MyInterface {
-        @Override
-        public void init() {
-            // no-op
-        }
     }
     
     public static class MyPolicy extends AbstractPolicy {

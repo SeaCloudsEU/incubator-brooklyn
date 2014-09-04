@@ -36,6 +36,7 @@ import brooklyn.location.LocationSpec;
 import brooklyn.management.ManagementContext;
 import brooklyn.test.entity.LocalManagementContextForTests;
 import brooklyn.util.collections.MutableMap;
+import brooklyn.util.collections.MutableSet;
 import brooklyn.util.flags.SetFromFlag;
 
 import com.google.common.collect.ImmutableList;
@@ -75,6 +76,7 @@ public class AbstractLocationTest {
     private ConcreteLocation createConcrete(Map<String,?> flags) {
         return createConcrete(null, flags);
     }
+    @SuppressWarnings("deprecation")
     private ConcreteLocation createConcrete(String id, Map<String,?> flags) {
         return mgmt.getLocationManager().createLocation( LocationSpec.create(ConcreteLocation.class).id(id).configure(flags) );
     }
@@ -172,5 +174,11 @@ public class AbstractLocationTest {
         ConcreteLocation loc = createConcrete();
         assertEquals(loc.myfield, "mydefault");
     }
-    
+
+    @Test
+    public void testLocationTags() throws Exception {
+        LocationInternal loc = mgmt.getLocationManager().createLocation(LocationSpec.create(ConcreteLocation.class).tag("x"));
+        assertEquals(loc.getTagSupport().getTags(), MutableSet.of("x"));
+    }
+
 }

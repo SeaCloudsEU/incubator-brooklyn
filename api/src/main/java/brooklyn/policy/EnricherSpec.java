@@ -20,20 +20,17 @@ package brooklyn.policy;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.Serializable;
-import java.lang.reflect.Modifier;
 import java.util.Collections;
 import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.basic.AbstractBrooklynObjectSpec;
 import brooklyn.config.ConfigKey;
 import brooklyn.config.ConfigKey.HasConfigKey;
 import brooklyn.management.Task;
-import brooklyn.util.exceptions.Exceptions;
 
-import com.google.common.base.Objects;
 import com.google.common.collect.Maps;
 
 /**
@@ -46,7 +43,7 @@ import com.google.common.collect.Maps;
  * 
  * @author aled
  */
-public class EnricherSpec<T extends Enricher> implements Serializable {
+public class EnricherSpec<T extends Enricher> extends AbstractBrooklynObjectSpec<T,EnricherSpec<T>> {
 
     private static final Logger log = LoggerFactory.getLogger(EnricherSpec.class);
 
@@ -59,7 +56,7 @@ public class EnricherSpec<T extends Enricher> implements Serializable {
      * 
      * @param type A {@link Enricher} class
      */
-    public static <T extends Enricher> EnricherSpec<T> create(Class<T> type) {
+    public static <T extends Enricher> EnricherSpec<T> create(Class<? extends T> type) {
         return new EnricherSpec<T>(type);
     }
     
@@ -71,26 +68,27 @@ public class EnricherSpec<T extends Enricher> implements Serializable {
      * @param config The spec's configuration (see {@link EnricherSpec#configure(Map)}).
      * @param type   An {@link Enricher} class
      */
-    public static <T extends Enricher> EnricherSpec<T> create(Map<?,?> config, Class<T> type) {
+    public static <T extends Enricher> EnricherSpec<T> create(Map<?,?> config, Class<? extends T> type) {
         return EnricherSpec.create(type).configure(config);
     }
     
-    private final Class<T> type;
-    private String displayName;
     private final Map<String, Object> flags = Maps.newLinkedHashMap();
     private final Map<ConfigKey<?>, Object> config = Maps.newLinkedHashMap();
 
-    protected EnricherSpec(Class<T> type) {
-        checkIsImplementation(type);
-        checkIsNewStyleImplementation(type);
-        this.type = type;
+    protected EnricherSpec(Class<? extends T> type) {
+        super(type);
     }
     
-    public EnricherSpec<T> displayName(String val) {
-        displayName = val;
+    protected void checkValidType(Class<? extends T> type) {
+        checkIsImplementation(type, Enricher.class);
+        checkIsNewStyleImplementation(type);
+    }
+    
+    public EnricherSpec<T> uniqueTag(String uniqueTag) {
+        flags.put("uniqueTag", uniqueTag);
         return this;
     }
-
+    
     public EnricherSpec<T> configure(Map<?,?> val) {
         for (Map.Entry<?, ?> entry: val.entrySet()) {
             if (entry.getKey()==null) throw new NullPointerException("Null key not permitted");
@@ -137,20 +135,6 @@ public class EnricherSpec<T extends Enricher> implements Serializable {
     }
 
     /**
-     * @return The type of the enricher
-     */
-    public Class<T> getType() {
-        return type;
-    }
-    
-    /**
-     * @return The display name of the enricher
-     */
-    public String getDisplayName() {
-        return displayName;
-    }
-    
-    /**
      * @return Read-only construction flags
      * @see SetFromFlag declarations on the enricher type
      */
@@ -164,30 +148,67 @@ public class EnricherSpec<T extends Enricher> implements Serializable {
     public Map<ConfigKey<?>, Object> getConfig() {
         return Collections.unmodifiableMap(config);
     }
-        
-    @Override
-    public String toString() {
-        return Objects.toStringHelper(this).add("type", type).toString();
-    }
-    
-    // TODO Duplicates method in EntitySpec and BasicEntityTypeRegistry
-    private void checkIsImplementation(Class<?> val) {
-        if (!Enricher.class.isAssignableFrom(val)) throw new IllegalStateException("Implementation "+val+" does not implement "+Enricher.class.getName());
-        if (val.isInterface()) throw new IllegalStateException("Implementation "+val+" is an interface, but must be a non-abstract class");
-        if (Modifier.isAbstract(val.getModifiers())) throw new IllegalStateException("Implementation "+val+" is abstract, but must be a non-abstract class");
-    }
 
-    // TODO Duplicates method in EntitySpec, BasicEntityTypeRegistry, and InternalEntityFactory.isNewStyleEntity
-    private void checkIsNewStyleImplementation(Class<?> implClazz) {
-        try {
-            implClazz.getConstructor(new Class[0]);
-        } catch (NoSuchMethodException e) {
-            throw new IllegalStateException("Implementation "+implClazz+" must have a no-argument constructor");
-        } catch (SecurityException e) {
-            throw Exceptions.propagate(e);
+    public abstract static class ExtensibleEnricherSpec<T extends Enricher,K extends ExtensibleEnricherSpec<T,K>> extends EnricherSpec<T> {
+        private static final long serialVersionUID = -3649347642882809739L;
+        
+        protected ExtensibleEnricherSpec(Class<? extends T> type) {
+            super(type);
+        }
+
+        @SuppressWarnings("unchecked")
+        protected K self() {
+            // we override the AbstractBrooklynObjectSpec method -- it's a different K here because
+            // EnricherSpec does not contain a parametrisable generic return type (Self)
+            return (K) this;
         }
         
-        if (implClazz.isInterface()) throw new IllegalStateException("Implementation "+implClazz+" is an interface, but must be a non-abstract class");
-        if (Modifier.isAbstract(implClazz.getModifiers())) throw new IllegalStateException("Implementation "+implClazz+" is abstract, but must be a non-abstract class");
+        @Override
+        public K uniqueTag(String uniqueTag) {
+            super.uniqueTag(uniqueTag);
+            return self();
+        }
+
+        @Override
+        public K configure(Map<?, ?> val) {
+            super.configure(val);
+            return self();
+        }
+
+        @Override
+        public K configure(CharSequence key, Object val) {
+            super.configure(key, val);
+            return self();
+        }
+
+        @Override
+        public <V> K configure(ConfigKey<V> key, V val) {
+            super.configure(key, val);
+            return self();
+        }
+
+        @Override
+        public <V> K configureIfNotNull(ConfigKey<V> key, V val) {
+            super.configureIfNotNull(key, val);
+            return self();
+        }
+
+        @Override
+        public <V> K configure(ConfigKey<V> key, Task<? extends V> val) {
+            super.configure(key, val);
+            return self();
+        }
+
+        @Override
+        public <V> K configure(HasConfigKey<V> key, V val) {
+            super.configure(key, val);
+            return self();
+        }
+
+        @Override
+        public <V> K configure(HasConfigKey<V> key, Task<? extends V> val) {
+            super.configure(key, val);
+            return self();
+        }
     }
 }

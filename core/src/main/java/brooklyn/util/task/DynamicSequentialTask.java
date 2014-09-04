@@ -40,6 +40,7 @@ import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.time.CountdownTimer;
 import brooklyn.util.time.Duration;
+import brooklyn.util.time.Time;
 
 import com.google.common.annotations.Beta;
 import com.google.common.collect.ImmutableList;
@@ -137,7 +138,7 @@ public class DynamicSequentialTask<T> extends BasicTask<T> implements HasTaskChi
     public void queue(Task<?> t) {
         synchronized (jobTransitionLock) {
             if (primaryFinished)
-                throw new IllegalStateException("Cannot add a task to "+this+" when it is already finished (trying to add "+t+")");
+                throw new IllegalStateException("Cannot add a task to "+this+" which is already finished (trying to add "+t+")");
             secondaryJobsAll.add(t);
             secondaryJobsRemaining.add(t);
             BrooklynTaskTags.addTagsDynamically(t, ManagementContextInternal.SUB_TASK_TAG);
@@ -184,9 +185,9 @@ public class DynamicSequentialTask<T> extends BasicTask<T> implements HasTaskChi
     /** submits the indicated task for execution in the current execution context, and returns immediately */
     protected void submitBackgroundInheritingContext(Task<?> task) {
         BasicExecutionContext ec = BasicExecutionContext.getCurrentExecutionContext();
-        if (log.isTraceEnabled())
-            log.trace("task {} - submitting background task {} ({})", new Object[] { 
-                Tasks.current(), task, ec });
+        if (log.isTraceEnabled()) {
+            log.trace("task {} - submitting background task {} ({})", new Object[] { Tasks.current(), task, ec });
+        }
         if (ec==null) {
             String message = Tasks.current()!=null ?
                     // user forgot ExecContext:
@@ -197,10 +198,13 @@ public class DynamicSequentialTask<T> extends BasicTask<T> implements HasTaskChi
             throw new IllegalStateException(message);
         }
         synchronized (task) {
-            if (task.isSubmitted() && !task.isDone())
-                log.debug("DST "+this+" skipping submission of child "+task+" because it is already submitted");
-            else
+            if (task.isSubmitted() && !task.isDone()) {
+                if (log.isTraceEnabled()) {
+                    log.trace("DST "+this+" skipping submission of child "+task+" because it is already submitted");
+                }
+            } else {
                 ec.submit(task);
+            }
         }
     }
 
@@ -367,7 +371,7 @@ public class DynamicSequentialTask<T> extends BasicTask<T> implements HasTaskChi
         
         @Override
         public String toString() {
-            return "DstJob:"+DynamicSequentialTask.this;
+            return "DstJob:"+DynamicSequentialTask.this.getId();
         }
 
         /** waits for this job to complete, or the given time to elapse */

@@ -61,7 +61,7 @@ public abstract class AbstractGroupImpl extends AbstractEntity implements Abstra
     }
 
     @Deprecated
-    public AbstractGroupImpl(Map flags, Entity parent) {
+    public AbstractGroupImpl(@SuppressWarnings("rawtypes") Map flags, Entity parent) {
         super(flags, parent);
     }
 
@@ -89,6 +89,17 @@ public abstract class AbstractGroupImpl extends AbstractEntity implements Abstra
         setAttribute(GROUP_MEMBERS, ImmutableList.<Entity>of());
     }
 
+    @Override
+    protected void initEnrichers() {
+        super.initEnrichers();
+        
+        // check states and upness separately so they can be individually replaced if desired
+        // problem if any children or members are on fire
+        ServiceStateLogic.newEnricherFromChildrenState().checkChildrenAndMembers().requireRunningChildren(getConfig(RUNNING_QUORUM_CHECK)).addTo(this);
+        // defaults to requiring at least one member or child who is up
+        ServiceStateLogic.newEnricherFromChildrenUp().checkChildrenAndMembers().requireUpChildren(getConfig(UP_QUORUM_CHECK)).addTo(this);
+    }
+
     /**
      * Adds the given entity as a member of this group <em>and</em> this group as one of the groups of the child
      */
@@ -106,9 +117,10 @@ public abstract class AbstractGroupImpl extends AbstractEntity implements Abstra
             boolean changed = members.add(member);
             if (changed) {
                 log.debug("Group {} got new member {}", this, member);
-                emit(MEMBER_ADDED, member);
                 setAttribute(GROUP_SIZE, getCurrentSize());
                 setAttribute(GROUP_MEMBERS, getMembers());
+                // emit after the above so listeners can use getMembers() and getCurrentSize()
+                emit(MEMBER_ADDED, member);
 
                 if (Boolean.TRUE.equals(getConfig(MEMBER_DELEGATE_CHILDREN))) {
                     Optional<Entity> result = Iterables.tryFind(getChildren(), Predicates.equalTo(member));
@@ -137,9 +149,11 @@ public abstract class AbstractGroupImpl extends AbstractEntity implements Abstra
             boolean changed = (member != null && members.remove(member));
             if (changed) {
                 log.debug("Group {} lost member {}", this, member);
-                emit(MEMBER_REMOVED, member);
+                // TODO ideally the following 3 are synched
                 setAttribute(GROUP_SIZE, getCurrentSize());
                 setAttribute(GROUP_MEMBERS, getMembers());
+                // emit after the above so listeners can use getMembers() and getCurrentSize()
+                emit(MEMBER_REMOVED, member);
 
                 if (Boolean.TRUE.equals(getConfig(MEMBER_DELEGATE_CHILDREN))) {
                     Optional<Entity> result = Iterables.tryFind(getChildren(), new Predicate<Entity>() {

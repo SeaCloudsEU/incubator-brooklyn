@@ -37,10 +37,10 @@ import brooklyn.location.Location;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.time.Time;
 
-import com.beust.jcommander.internal.Lists;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -116,6 +116,7 @@ public class MockContainerEntityImpl extends AbstractGroupImpl implements MockCo
         emit(BalanceableContainer.ITEM_REMOVED, item);
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public Set<Movable> getBalanceableItems() {
         return (Set) Sets.newLinkedHashSet(getMembers());
@@ -137,8 +138,6 @@ public class MockContainerEntityImpl extends AbstractGroupImpl implements MockCo
             if (getDelay() > 0) Time.sleep(getDelay());
             running = true;
             addLocations(locs);
-            Location loc = Iterables.get(locs, 0);
-            String locName = (loc.getDisplayName() != null) ? loc.getDisplayName() : loc.toString();
             emit(Attributes.LOCATION_CHANGED, null);
             setAttribute(SERVICE_UP, true);
         } finally {

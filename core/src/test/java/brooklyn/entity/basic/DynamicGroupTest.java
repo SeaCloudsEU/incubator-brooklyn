@@ -71,7 +71,7 @@ public class DynamicGroupTest {
     
     @BeforeMethod(alwaysRun=true)
     public void setUp() {
-        app = ApplicationBuilder.newManagedApp(TestApplication.class);
+        app = TestApplication.Factory.newManagedInstanceForTests();
         group = app.createAndManageChild(EntitySpec.create(DynamicGroup.class));
         e1 = app.createAndManageChild(EntitySpec.create(TestEntity.class));
         e2 = app.createAndManageChild(EntitySpec.create(TestEntity.class));
@@ -101,7 +101,7 @@ public class DynamicGroupTest {
     
     @Test
     public void testCanUsePredicateAsFilter() throws Exception {
-        Predicate predicate = Predicates.equalTo(e1);
+        Predicate<Entity> predicate = Predicates.<Entity>equalTo(e1);
         group.setEntityFilter(predicate);
         assertEqualsIgnoringOrder(group.getMembers(), ImmutableSet.of(e1));
     }
@@ -293,7 +293,7 @@ public class DynamicGroupTest {
         });
 
         for (int i = 0; i < NUM_CYCLES; i++) {
-            final TestEntity entity = app.createAndManageChild(EntitySpec.create(TestEntity.class).id("entity-" + i));
+            final TestEntity entity = app.createAndManageChild(EntitySpec.create(TestEntity.class));
             LOG.debug("Created: entity {}", i);
             Asserts.succeedsEventually(new Runnable() {
                 public void run() {
@@ -369,7 +369,6 @@ public class DynamicGroupTest {
         };
         ((EntityLocal)group2).setConfig(DynamicGroup.ENTITY_FILTER, Predicates.instanceOf(TestEntity.class));
         app.addChild(group2);
-        group2.init();
         Entities.manage(group2);
         
         for (int i = 0; i < NUM_CYCLES; i++) {
@@ -421,7 +420,6 @@ public class DynamicGroupTest {
         };
         ((EntityLocal)group2).setConfig(DynamicGroup.ENTITY_FILTER, Predicates.<Object>equalTo(e3));
         app.addChild(group2);
-        group2.init();
         
         Thread t1 = new Thread(new Runnable() {
             @Override public void run() {

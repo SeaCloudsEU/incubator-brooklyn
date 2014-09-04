@@ -18,8 +18,8 @@
  */
 package brooklyn.entity.basic;
 
-import static brooklyn.util.GroovyJavaMethods.elvis;
-import static brooklyn.util.GroovyJavaMethods.truth;
+import static brooklyn.util.JavaGroovyEquivalents.elvis;
+import static brooklyn.util.JavaGroovyEquivalents.groovyTruth;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
@@ -37,6 +37,7 @@ import org.slf4j.LoggerFactory;
 import brooklyn.config.BrooklynLogging;
 import brooklyn.entity.basic.lifecycle.NaiveScriptRunner;
 import brooklyn.entity.basic.lifecycle.ScriptHelper;
+import brooklyn.entity.drivers.downloads.DownloadResolver;
 import brooklyn.entity.drivers.downloads.DownloadResolverManager;
 import brooklyn.entity.software.SshEffectorTasks;
 import brooklyn.event.feed.ConfigToAttributes;
@@ -80,6 +81,8 @@ public abstract class AbstractSoftwareProcessSshDriver extends AbstractSoftwareP
     private volatile String installDir;
     private volatile String runDir;
     private volatile String expandedInstallDir;
+
+    protected volatile DownloadResolver resolver;
     
     /** include this flag in newScript creation to prevent entity-level flags from being included;
      * any SSH-specific flags passed to newScript override flags from the entity,
@@ -278,6 +281,25 @@ public abstract class AbstractSoftwareProcessSshDriver extends AbstractSoftwareP
         }
         if (!flags.containsKey("logPrefix")) flags.put("logPrefix", ""+entity.getId()+"@"+getLocation().getDisplayName());
         return getMachine().execScript(flags, summaryForLogging, script, environment);
+    }
+
+    @Override
+    public void resources() {
+        Map runtimeFiles = entity.getConfig(SoftwareProcess.RUNTIME_FILES);
+        copyResources(runtimeFiles);
+
+        Map runtimeTemplates = entity.getConfig(SoftwareProcess.RUNTIME_TEMPLATES);
+        copyTemplates(runtimeTemplates);
+    }
+    
+    @Override
+    public void runPreInstallCommand(String command) {
+        execute(ImmutableList.of(command), "running pre-install commands");
+    }
+    
+    @Override
+    public void runPostInstallCommand(String command) {
+        execute(ImmutableList.of(command), "running post-install commands");
     }
     
     @Override
@@ -582,13 +604,13 @@ public abstract class AbstractSoftwareProcessSshDriver extends AbstractSoftwareP
         }
 
         ScriptHelper s = new ScriptHelper(this, phase+" "+elvis(entity,this));
-        if (!truth(flags.get(NON_STANDARD_LAYOUT))) {
-            if (truth(flags.get(DEBUG))) {
+        if (!groovyTruth(flags.get(NON_STANDARD_LAYOUT))) {
+            if (groovyTruth(flags.get(DEBUG))) {
                 s.header.prepend("set -x");
             }
             if (INSTALLING.equals(phase)) {
                 // mutexId should be global because otherwise package managers will contend with each other 
-                s.useMutex(getLocation(), "installing", "installing "+elvis(entity,this));
+                s.useMutex(getLocation(), "installation lock at host", "installing "+elvis(entity,this));
                 s.header.append(
                         "export INSTALL_DIR=\""+getInstallDir()+"\"",
                         "mkdir -p $INSTALL_DIR",
@@ -596,9 +618,11 @@ public abstract class AbstractSoftwareProcessSshDriver extends AbstractSoftwareP
                         "test -f BROOKLYN && exit 0"
                         );
 
-                if (!truth(flags.get(INSTALL_INCOMPLETE))) {
+                if (!groovyTruth(flags.get(INSTALL_INCOMPLETE))) {
                     s.footer.append("date > $INSTALL_DIR/BROOKLYN");
                 }
+                // don't set vars during install phase, prevent dependency resolution
+                s.environmentVariablesReset();
             }
             if (ImmutableSet.of(CUSTOMIZING, LAUNCHING, CHECK_RUNNING, STOPPING, KILLING, RESTARTING).contains(phase)) {
                 s.header.append(
@@ -614,7 +638,7 @@ public abstract class AbstractSoftwareProcessSshDriver extends AbstractSoftwareP
         }
         if (ImmutableSet.of(STOPPING, KILLING).contains(phase)) {
             // stopping and killing allowed to have empty body if pid file set
-            if (!truth(flags.get(USE_PID_FILE)))
+            if (!groovyTruth(flags.get(USE_PID_FILE)))
                 s.failIfBodyEmpty();
         }
         if (ImmutableSet.of(INSTALLING, LAUNCHING).contains(phase)) {
@@ -628,7 +652,7 @@ public abstract class AbstractSoftwareProcessSshDriver extends AbstractSoftwareP
             s.setFlag(SshTool.PROP_SSH_TRIES, 1);
         }
 
-        if (truth(flags.get(USE_PID_FILE))) {
+        if (groovyTruth(flags.get(USE_PID_FILE))) {
             Object usePidFile = flags.get(USE_PID_FILE);
             String pidFile = (usePidFile instanceof CharSequence ? usePidFile : Os.mergePathsUnix(getRunDir(), PID_FILENAME)).toString();
             String processOwner = (String) flags.get(PROCESS_OWNER);
@@ -712,5 +736,8 @@ public abstract class AbstractSoftwareProcessSshDriver extends AbstractSoftwareP
         result.add(22);
         return result;
     }
+
+    @Override
+    public void setup() { }
 
 }

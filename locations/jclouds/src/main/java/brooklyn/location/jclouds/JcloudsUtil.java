@@ -18,7 +18,7 @@
  */
 package brooklyn.location.jclouds;
 
-import static brooklyn.util.GroovyJavaMethods.truth;
+import static brooklyn.util.JavaGroovyEquivalents.groovyTruth;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.jclouds.aws.ec2.reference.AWSEC2Constants.PROPERTY_EC2_AMI_QUERY;
 import static org.jclouds.aws.ec2.reference.AWSEC2Constants.PROPERTY_EC2_CC_AMI_QUERY;
@@ -76,7 +76,9 @@ import brooklyn.location.jclouds.config.BrooklynStandardJcloudsGuiceModule;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.config.ConfigBag;
+import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.net.Protocol;
+import brooklyn.util.ssh.BashCommands;
 import brooklyn.util.ssh.IptablesCommands;
 import brooklyn.util.ssh.IptablesCommands.Chain;
 import brooklyn.util.ssh.IptablesCommands.Policy;
@@ -154,6 +156,10 @@ public class JcloudsUtil implements JcloudsLocationConfig {
         }
     }
     
+    /**
+     * @deprecated since 0.7; {@see #installJavaAndCurl(OperatingSystem)}
+     */
+    @Deprecated
     public static final Statement APT_RUN_SCRIPT = newStatementList(//
           exec(installAfterUpdatingIfNotPresent("curl")),//
           exec("(which java && java -fullversion 2>&1|egrep -q 1.6 ) ||"),//
@@ -165,6 +171,10 @@ public class JcloudsUtil implements JcloudsLocationConfig {
                 .append("echo \"export PATH=\\\"$JAVA_HOME/bin/:$PATH\\\"\" >> /root/.bashrc")//
                 .toString()));
 
+    /**
+     * @deprecated since 0.7; {@see #installJavaAndCurl(OperatingSystem)}
+     */
+    @Deprecated
     public static final Statement YUM_RUN_SCRIPT = newStatementList(
           exec("which curl ||yum --nogpgcheck -y install curl"),//
           exec("(which java && java -fullversion 2>&1|egrep -q 1.6 ) ||"),//
@@ -174,6 +184,10 @@ public class JcloudsUtil implements JcloudsLocationConfig {
                 .append("echo \"export PATH=\\\"$JAVA_HOME/bin/:$PATH\\\"\" >> /root/.bashrc")//
                 .toString()));
 
+    /**
+     * @deprecated since 0.7; {@see #installJavaAndCurl(OperatingSystem)}
+     */
+    @Deprecated
     public static final Statement ZYPPER_RUN_SCRIPT = exec(new StringBuilder()//
           .append("echo nameserver 208.67.222.222 >> /etc/resolv.conf\n")//
           .append("which curl || zypper install curl\n")//
@@ -181,6 +195,10 @@ public class JcloudsUtil implements JcloudsLocationConfig {
           .toString());
 
     // Code taken from RunScriptData
+    /**
+     * @deprecated since 0.7; see {@link BashCommands#installJava7()} and {@link BashCommands#INSTALL_CURL}
+     */
+    @Deprecated
     public static Statement installJavaAndCurl(OperatingSystem os) {
        if (os == null || OperatingSystemPredicates.supportsApt().apply(os))
           return APT_RUN_SCRIPT;
@@ -213,12 +231,12 @@ public class JcloudsUtil implements JcloudsLocationConfig {
         // See https://issues.apache.org/jira/browse/WHIRR-416
         if ("aws-ec2".equals(provider)) {
             // TODO convert AWS-only flags to config keys
-            if (truth(conf.get(IMAGE_ID))) {
+            if (groovyTruth(conf.get(IMAGE_ID))) {
                 properties.setProperty(PROPERTY_EC2_AMI_QUERY, "");
                 properties.setProperty(PROPERTY_EC2_CC_AMI_QUERY, "");
-            } else if (truth(conf.getStringKey("imageOwner"))) {
+            } else if (groovyTruth(conf.getStringKey("imageOwner"))) {
                 properties.setProperty(PROPERTY_EC2_AMI_QUERY, "owner-id="+conf.getStringKey("imageOwner")+";state=available;image-type=machine");
-            } else if (truth(conf.getStringKey("anyOwner"))) {
+            } else if (groovyTruth(conf.getStringKey("anyOwner"))) {
                 // set `anyOwner: true` to override the default query (which is restricted to certain owners as per below), 
                 // allowing the AMI query to bind to any machine
                 // (note however, we sometimes pick defaults in JcloudsLocationFactory);
@@ -245,8 +263,8 @@ public class JcloudsUtil implements JcloudsLocationConfig {
         properties.putAll(extra);
 
         String endpoint = conf.get(CLOUD_ENDPOINT);
-        if (!truth(endpoint)) endpoint = getDeprecatedProperty(conf, Constants.PROPERTY_ENDPOINT);
-        if (truth(endpoint)) properties.setProperty(Constants.PROPERTY_ENDPOINT, endpoint);
+        if (!groovyTruth(endpoint)) endpoint = getDeprecatedProperty(conf, Constants.PROPERTY_ENDPOINT);
+        if (groovyTruth(endpoint)) properties.setProperty(Constants.PROPERTY_ENDPOINT, endpoint);
 
         Map<?,?> cacheKey = MutableMap.builder()
                 .putAll(properties)
@@ -255,7 +273,7 @@ public class JcloudsUtil implements JcloudsLocationConfig {
                 .put("credential", credential)
                 .putIfNotNull("endpoint", endpoint)
                 .build()
-                .toImmutable();
+                .asUnmodifiable();
 
         if (allowReuse) {
             ComputeService result = cachedComputeServices.get(cacheKey);
@@ -370,7 +388,19 @@ public class JcloudsUtil implements JcloudsLocationConfig {
         //     jclouds.ssh.max-retries
         //     jclouds.ssh.retry-auth
 
-        final SshClient client = context.utils().sshForNode().apply(node);
+        SshClient client;
+        try {
+            client = context.utils().sshForNode().apply(node);
+        } catch (Exception e) {
+            Exceptions.propagateIfFatal(e);
+            /* i've seen: java.lang.IllegalStateException: Optional.get() cannot be called on an absent value
+             * from org.jclouds.crypto.ASN1Codec.createASN1Sequence(ASN1Codec.java:86), if the ssh key has a passphrase, against AWS.
+             * 
+             * others have reported: java.lang.IllegalArgumentException: DER length more than 4 bytes
+             * when using a key with a passphrase (perhaps from other clouds?); not sure if that's this callpath or a different one.
+             */
+            throw new IllegalStateException("Unable to connect SshClient to "+node+"; check that the node is accessible and that the SSH key exists and is correctly configured, including any passphrase defined", e);
+        }
         return client.getHostAddress();
     }
     

@@ -35,7 +35,6 @@ import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.database.DatastoreMixins;
-import brooklyn.entity.drivers.downloads.DownloadResolver;
 import brooklyn.entity.java.JavaSoftwareProcessSshDriver;
 import brooklyn.entity.java.UsesJmx;
 import brooklyn.entity.software.SshEffectorTasks;
@@ -58,13 +57,13 @@ import brooklyn.util.task.Tasks;
 import brooklyn.util.task.system.ProcessTaskWrapper;
 import brooklyn.util.text.Identifiers;
 import brooklyn.util.text.Strings;
+import brooklyn.util.text.TemplateProcessor;
 import brooklyn.util.time.Duration;
 import brooklyn.util.time.Time;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 
 /**
  * Start a {@link CassandraNode} in a {@link Location} accessible over ssh.
@@ -98,7 +97,10 @@ public class CassandraNodeSshDriver extends JavaSoftwareProcessSshDriver impleme
     public String getClusterName() { return entity.getAttribute(CassandraNode.CLUSTER_NAME); }
 
     @Override
-    public String getCassandraConfigTemplateUrl() { return entity.getConfig(CassandraNode.CASSANDRA_CONFIG_TEMPLATE_URL); }
+    public String getCassandraConfigTemplateUrl() {
+        String templatedUrl = entity.getConfig(CassandraNode.CASSANDRA_CONFIG_TEMPLATE_URL);
+        return TemplateProcessor.processTemplateContents(templatedUrl, this, ImmutableMap.<String, Object>of());
+    }
 
     @Override
     public String getCassandraConfigFileName() { return entity.getConfig(CassandraNode.CASSANDRA_CONFIG_FILE_NAME); }
@@ -116,12 +118,25 @@ public class CassandraNodeSshDriver extends JavaSoftwareProcessSshDriver impleme
     }
     
     @Override
+    public boolean installJava() {
+        String version = getVersion();
+        if (version.startsWith("2.")) {
+            return checkForAndInstallJava7or8();
+        } else {
+            return super.installJava();
+        }
+    }
+
+    @Override
+    public void preInstall() {
+        resolver = Entities.newDownloader(this);
+        setExpandedInstallDir(Os.mergePaths(getInstallDir(), resolver.getUnpackedDirectoryName(getDefaultUnpackedDirectoryName())));
+    }
+
+    @Override
     public void install() {
-        log.debug("Installing {}", entity);
-        DownloadResolver resolver = Entities.newDownloader(this);
         List<String> urls = resolver.getTargets();
         String saveAs = resolver.getFilename();
-        setExpandedInstallDir(getInstallDir()+"/"+resolver.getUnpackedDirectoryName(getDefaultUnpackedDirectoryName()));
 
         List<String> commands = ImmutableList.<String>builder()
                 .addAll(BashCommands.commandsToDownloadUrlsAs(urls, saveAs))

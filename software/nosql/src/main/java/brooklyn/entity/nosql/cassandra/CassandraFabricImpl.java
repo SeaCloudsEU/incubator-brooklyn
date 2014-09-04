@@ -72,8 +72,6 @@ public class CassandraFabricImpl extends DynamicFabricImpl implements CassandraF
     // Mutex for synchronizing during re-size operations
     private final Object mutex = new Object[0];
 
-    private MemberTrackingPolicy policy;
-
     private final Supplier<Set<Entity>> defaultSeedSupplier = new Supplier<Set<Entity>>() {
         @Override public Set<Entity> get() {
             // TODO Remove duplication from CassandraClusterImpl.defaultSeedSupplier
@@ -86,13 +84,16 @@ public class CassandraFabricImpl extends DynamicFabricImpl implements CassandraF
             if (seeds == null || seeds.size() < quorumSize || containsDownEntity(seeds)) {
                 Set<Entity> newseeds;
                 Map<CassandraDatacenter,Set<Entity>> potentialSeeds = MutableMap.of();
+                int potentialSeedCount = 0;
                 for (CassandraDatacenter member : Iterables.filter(getMembers(), CassandraDatacenter.class)) {
-                    potentialSeeds.put(member, member.gatherPotentialSeeds());
+                    Set<Entity> dcPotentialSeeds = member.gatherPotentialSeeds();
+                    potentialSeeds.put(member, dcPotentialSeeds);
+                    potentialSeedCount += dcPotentialSeeds.size();
                 }
                 
                 if (hasPublishedSeeds) {
                     Set<Entity> currentSeeds = getAttribute(CURRENT_SEEDS);
-                    Lifecycle serviceState = getAttribute(SERVICE_STATE);
+                    Lifecycle serviceState = getAttribute(SERVICE_STATE_ACTUAL);
                     if (serviceState == Lifecycle.STARTING) {
                         if (Sets.intersection(currentSeeds, ImmutableSet.copyOf(Iterables.concat(potentialSeeds.values()))).isEmpty()) {
                             log.warn("Fabric {} lost all its seeds while starting! Subsequent failure likely, but changing seeds during startup would risk split-brain: seeds={}", new Object[] {CassandraFabricImpl.this, currentSeeds});
@@ -101,7 +102,7 @@ public class CassandraFabricImpl extends DynamicFabricImpl implements CassandraF
                     } else if (serviceState == Lifecycle.STOPPING || serviceState == Lifecycle.STOPPED) {
                         if (log.isTraceEnabled()) log.trace("Fabric {} ignoring any potential seed-changes, because {}: seeds={}", new Object[] {CassandraFabricImpl.this, serviceState, currentSeeds});
                         newseeds = currentSeeds;
-                    } else if (potentialSeeds.isEmpty()) {
+                    } else if (potentialSeedCount == 0) {
                         // TODO Could be race where nodes have only just returned from start() and are about to 
                         // transition to serviceUp; so don't just abandon all our seeds!
                         log.warn("Fabric {} has no seeds (after startup); leaving seeds as-is; but risks split-brain if these seeds come back up!", new Object[] {CassandraFabricImpl.this});
@@ -116,8 +117,8 @@ public class CassandraFabricImpl extends DynamicFabricImpl implements CassandraF
                         }
                         newseeds = result;
                     }
-                } else if (potentialSeeds.size() < quorumSize) {
-                    if (log.isDebugEnabled()) log.debug("Not setting seeds of fabric {} yet, because still waiting for quorum (need {}; have {} potentials from {} members)", new Object[] {CassandraFabricImpl.this, quorumSize, potentialSeeds.size(), getMembers()});
+                } else if (potentialSeedCount < quorumSize) {
+                    if (log.isDebugEnabled()) log.debug("Not setting seeds of fabric {} yet, because still waiting for quorum (need {}; have {} potentials from {} members)", new Object[] {CassandraFabricImpl.this, quorumSize, potentialSeedCount, getMembers()});
                     newseeds = ImmutableSet.of();
                 } else if (!allNonEmpty(potentialSeeds.values())) {
                     if (log.isDebugEnabled()) {
@@ -189,7 +190,7 @@ public class CassandraFabricImpl extends DynamicFabricImpl implements CassandraF
             boolean managed = Entities.isManaged(member);
             String hostname = member.getAttribute(Attributes.HOSTNAME);
             boolean serviceUp = Boolean.TRUE.equals(member.getAttribute(Attributes.SERVICE_UP));
-            Lifecycle serviceState = member.getAttribute(Attributes.SERVICE_STATE);
+            Lifecycle serviceState = member.getAttribute(Attributes.SERVICE_STATE_ACTUAL);
             boolean hasFailed = !managed || (serviceState == Lifecycle.ON_FIRE) || (serviceState == Lifecycle.RUNNING && !serviceUp) || (serviceState == Lifecycle.STOPPED);
             boolean result = (hostname != null && !hasFailed);
             if (log.isTraceEnabled()) log.trace("Node {} in Fabric {}: viableSeed={}; hostname={}; serviceUp={}; serviceState={}; hasFailed={}", new Object[] {member, CassandraFabricImpl.this, result, hostname, serviceUp, serviceState, hasFailed});
@@ -208,7 +209,7 @@ public class CassandraFabricImpl extends DynamicFabricImpl implements CassandraF
             setConfig(CassandraDatacenter.SEED_SUPPLIER, getSeedSupplier());
         
         // track members
-        policy = addPolicy(PolicySpec.create(MemberTrackingPolicy.class)
+        addPolicy(PolicySpec.create(MemberTrackingPolicy.class)
                 .displayName("Cassandra Fabric Tracker")
                 .configure("group", this));
 

@@ -39,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -56,10 +57,12 @@ import brooklyn.location.Location;
 import brooklyn.location.basic.SimulatedLocation;
 import brooklyn.management.Task;
 import brooklyn.test.Asserts;
+import brooklyn.test.EntityTestUtils;
 import brooklyn.test.entity.TestEntity;
 import brooklyn.test.entity.TestEntityImpl;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
+import brooklyn.util.time.Duration;
 import brooklyn.util.time.Time;
 
 import com.google.common.base.Function;
@@ -142,7 +145,8 @@ public class DynamicClusterTest extends BrooklynAppUnitTestSupport {
                 .configure(DynamicCluster.MEMBER_SPEC, EntitySpec.create(TestEntity.class))
                 .configure(DynamicCluster.INITIAL_SIZE, 0));
         cluster.start(ImmutableList.of(loc));
-        assertEquals(cluster.getAttribute(Attributes.SERVICE_STATE), Lifecycle.RUNNING);
+        
+        EntityTestUtils.assertAttributeEqualsEventually(cluster, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.RUNNING);
         assertTrue(cluster.getAttribute(Attributes.SERVICE_UP));
     }
 
@@ -175,6 +179,30 @@ public class DynamicClusterTest extends BrooklynAppUnitTestSupport {
         assertEquals(entity.getCounter().get(), 1);
         assertEquals(entity.getParent(), cluster);
         assertEquals(entity.getApplication(), app);
+    }
+
+    @Test
+    public void resizeDownByTwoAndDownByOne() throws Exception {
+        DynamicCluster cluster = app.createAndManageChild(EntitySpec.create(DynamicCluster.class)
+                .configure("factory", new EntityFactory() {
+                    @Override public Entity newEntity(Map flags, Entity parent) {
+                        return new TestEntityImpl(flags);
+                    }}));
+
+        cluster.start(ImmutableList.of(loc));
+
+        cluster.resize(4);
+        assertEquals(Iterables.size(Entities.descendants(cluster, TestEntity.class)), 4);
+        
+        // check delta of 2 and delta of 1, because >1 is handled differently to =1
+        cluster.resize(2);
+        assertEquals(Iterables.size(Entities.descendants(cluster, TestEntity.class)), 2);
+        cluster.resize(1);
+        assertEquals(Iterables.size(Entities.descendants(cluster, TestEntity.class)), 1);
+        cluster.resize(1);
+        assertEquals(Iterables.size(Entities.descendants(cluster, TestEntity.class)), 1);
+        cluster.resize(0);
+        assertEquals(Iterables.size(Entities.descendants(cluster, TestEntity.class)), 0);
     }
 
     @Test
@@ -349,11 +377,25 @@ public class DynamicClusterTest extends BrooklynAppUnitTestSupport {
                     }}));
 
         cluster.start(ImmutableList.of(loc));
-        cluster.resize(3);
+        resizeExpectingError(cluster, 3);
         assertEquals(cluster.getCurrentSize(), (Integer)2);
         assertEquals(cluster.getMembers().size(), 2);
         for (Entity member : cluster.getMembers()) {
             assertFalse(((FailingEntity)member).getConfig(FailingEntity.FAIL_ON_START));
+        }
+    }
+
+    static Exception resizeExpectingError(DynamicCluster cluster, int size) {
+        try {
+            cluster.resize(size);
+            Assert.fail("Resize should have failed");
+            // unreachable:
+            return null;
+        } catch (Exception e) {
+            Exceptions.propagateIfFatal(e);
+            // expect: brooklyn.util.exceptions.PropagatedRuntimeException: Error invoking resize at DynamicClusterImpl{id=I9Ggxfc1}: 1 of 3 parallel child tasks failed: Simulating entity stop failure for test
+            Assert.assertTrue(e.toString().contains("resize"));
+            return e;
         }
     }
 
@@ -447,7 +489,7 @@ public class DynamicClusterTest extends BrooklynAppUnitTestSupport {
                     }}));
 
         cluster.start(ImmutableList.of(loc));
-        cluster.resize(3);
+        resizeExpectingError(cluster, 3);
         assertEquals(cluster.getCurrentSize(), (Integer)2);
         assertEquals(cluster.getMembers().size(), 2);
         assertEquals(Iterables.size(Iterables.filter(cluster.getChildren(), Predicates.instanceOf(FailingEntity.class))), 3);
@@ -484,7 +526,7 @@ public class DynamicClusterTest extends BrooklynAppUnitTestSupport {
         assertEquals(cluster.getChildren().size(), 0, "children="+cluster.getChildren());
         
         // Failed node will not be a member or child
-        cluster.resize(3);
+        resizeExpectingError(cluster, 3);
         assertEquals(cluster.getCurrentSize(), (Integer)2);
         assertEquals(cluster.getMembers().size(), 2);
         assertEquals(cluster.getChildren().size(), 2, "children="+cluster.getChildren());

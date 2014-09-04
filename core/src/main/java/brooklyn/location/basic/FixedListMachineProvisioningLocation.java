@@ -28,6 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import brooklyn.location.Location;
 import brooklyn.location.LocationSpec;
 import brooklyn.location.MachineLocation;
@@ -35,6 +38,7 @@ import brooklyn.location.MachineProvisioningLocation;
 import brooklyn.location.NoMachinesAvailableException;
 import brooklyn.management.LocationManager;
 import brooklyn.util.collections.MutableMap;
+import brooklyn.util.collections.MutableSet;
 import brooklyn.util.flags.SetFromFlag;
 import brooklyn.util.stream.Streams;
 import brooklyn.util.text.WildcardGlobs;
@@ -63,6 +67,8 @@ implements MachineProvisioningLocation<T>, Closeable {
     // and getMachines() returns the real sets risking 
     // ConcurrentModificationException in the caller if it iterates over them etc.
     
+    private static final Logger log = LoggerFactory.getLogger(FixedListMachineProvisioningLocation.class);
+    
     private final Object lock = new Object();
     
     @SetFromFlag
@@ -89,13 +95,20 @@ implements MachineProvisioningLocation<T>, Closeable {
     public void init() {
         super.init();
         
-        for (MachineLocation location: machines) {
-            // FIXME Bad casting
-            Location machine = (Location) location;
-            Location parent = machine.getParent();
-            if (parent == null) {
-                addChild(machine);
+        Set<T> machinesCopy = MutableSet.of();
+        for (T location: machines) {
+            if (location==null) {
+                log.warn(""+this+" initialized with null location, removing (may be due to rebind with reference to an unmanaged location)");
+            } else {
+                Location parent = location.getParent();
+                if (parent == null) {
+                    addChild(location);
+                }
+                machinesCopy.add(location);
             }
+        }
+        if (!machinesCopy.equals(machines)) {
+            machines = machinesCopy;
         }
     }
     
@@ -108,11 +121,11 @@ implements MachineProvisioningLocation<T>, Closeable {
     }
 
     @Override
-    public void configure(Map properties) {
+    public AbstractLocation configure(Map properties) {
         if (machines == null) machines = Sets.newLinkedHashSet();
         if (inUse == null) inUse = Sets.newLinkedHashSet();
         if (pendingRemoval == null) pendingRemoval = Sets.newLinkedHashSet();
-        super.configure(properties);
+        return super.configure(properties);
     }
     
     public FixedListMachineProvisioningLocation<T> newSubLocation(Map<?,?> newFlags) {
@@ -184,7 +197,7 @@ implements MachineProvisioningLocation<T>, Closeable {
     }
 
     @Override
-    protected boolean removeChild(Location child) {
+    public boolean removeChild(Location child) {
         if (inUse.contains(child)) {
             throw new IllegalStateException("Child location "+child+" is in use; cannot remove from "+this);
         }

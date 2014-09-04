@@ -38,12 +38,14 @@ import brooklyn.management.ManagementContext;
 import brooklyn.management.Task;
 import brooklyn.management.TaskAdaptable;
 import brooklyn.management.TaskFactory;
+import brooklyn.management.TaskQueueingContext;
 import brooklyn.util.ResourceUtils;
 import brooklyn.util.config.ConfigBag;
 import brooklyn.util.internal.ssh.SshTool;
 import brooklyn.util.net.Urls;
 import brooklyn.util.ssh.BashCommands;
 import brooklyn.util.stream.Streams;
+import brooklyn.util.task.DynamicTasks;
 import brooklyn.util.task.Tasks;
 import brooklyn.util.task.ssh.internal.PlainSshExecTaskFactory;
 import brooklyn.util.task.system.ProcessTaskFactory;
@@ -130,9 +132,36 @@ public class SshTasks {
         return result;
     }
 
+    @Beta
+    public static enum OnFailingTask { 
+        FAIL,
+        /** issues a warning, sometimes implemented as marking the task inessential and failing it if it appears
+         * we are in a dynamic {@link TaskQueueingContext};
+         * useful because this way the warning appears to the user;
+         * but note that the check is done against the calling thread so use with some care
+         * (and thus this enum is currently here rather then elsewhere) */
+        WARN_OR_IF_DYNAMIC_FAIL_MARKING_INESSENTIAL,
+        /** issues a warning in the log if the task fails, otherwise swallows it */
+        WARN_IN_LOG_ONLY, 
+        /** not even a warning if the task fails (the caller is expected to handle it as appropriate) */
+        IGNORE }
+    
+    public static ProcessTaskFactory<Boolean> dontRequireTtyForSudo(SshMachineLocation machine, final boolean failIfCantSudo) {
+        return dontRequireTtyForSudo(machine, failIfCantSudo ? OnFailingTask.FAIL : OnFailingTask.WARN_IN_LOG_ONLY);
+    }
     /** creates a task which returns modifies sudoers to ensure non-tty access is permitted;
      * also gives nice warnings if sudo is not permitted */
-    public static ProcessTaskFactory<Boolean> dontRequireTtyForSudo(SshMachineLocation machine, final boolean requireSuccess) {
+    public static ProcessTaskFactory<Boolean> dontRequireTtyForSudo(SshMachineLocation machine, OnFailingTask onFailingTaskRequested) {
+        final OnFailingTask onFailingTask;
+        if (onFailingTaskRequested==OnFailingTask.WARN_OR_IF_DYNAMIC_FAIL_MARKING_INESSENTIAL) {
+            if (DynamicTasks.getTaskQueuingContext()!=null)
+                onFailingTask = onFailingTaskRequested;
+            else
+                onFailingTask = OnFailingTask.WARN_IN_LOG_ONLY;
+        } else {
+            onFailingTask = onFailingTaskRequested;
+        }
+        
         final String id = Identifiers.makeRandomId(6);
         return newSshExecTaskFactory(machine, 
                 BashCommands.dontRequireTtyForSudo(),
@@ -144,14 +173,25 @@ public class SshTasks {
             .returning(new Function<ProcessTaskWrapper<?>,Boolean>() { public Boolean apply(ProcessTaskWrapper<?> task) {
                 if (task.getExitCode()==0 && task.getStdout().contains("sudo-is-working-"+id)) return true;
                 Entity entity = BrooklynTaskTags.getTargetOrContextEntity(Tasks.current());
-                log.warn("Error setting up sudo for "+task.getMachine().getUser()+"@"+task.getMachine().getAddress().getHostName()+" "+
-                        " (exit code "+task.getExitCode()+(entity!=null ? ", entity "+entity : "")+")");
+                
+                
+                if (onFailingTask!=OnFailingTask.IGNORE) {
+                    // TODO if in a queueing context can we mark this task inessential and throw?
+                    // that way user sees the message...
+                    String message = "Error setting up sudo for "+task.getMachine().getUser()+"@"+task.getMachine().getAddress().getHostName()+" "+
+                        " (exit code "+task.getExitCode()+(entity!=null ? ", entity "+entity : "")+")";
+                    DynamicTasks.queueIfPossible(Tasks.warning(message, null));
+                }
                 Streams.logStreamTail(log, "STDERR of sudo setup problem", Streams.byteArrayOfString(task.getStderr()), 1024);
-                if (requireSuccess) {
+                
+                if (onFailingTask==OnFailingTask.WARN_OR_IF_DYNAMIC_FAIL_MARKING_INESSENTIAL) {
+                    Tasks.markInessential();
+                }
+                if (onFailingTask==OnFailingTask.FAIL || onFailingTask==OnFailingTask.WARN_OR_IF_DYNAMIC_FAIL_MARKING_INESSENTIAL) {
                     throw new IllegalStateException("Passwordless sudo is required for "+task.getMachine().getUser()+"@"+task.getMachine().getAddress().getHostName()+
                             (entity!=null ? " ("+entity+")" : ""));
                 }
-                return true; 
+                return false; 
             } });
     }
 

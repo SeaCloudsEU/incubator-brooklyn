@@ -18,6 +18,8 @@
  */
 package brooklyn.entity.java;
 
+import static brooklyn.util.JavaGroovyEquivalents.groovyTruth;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -36,7 +38,6 @@ import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.effector.EffectorTasks;
 import brooklyn.entity.software.SshEffectorTasks;
 import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.util.GroovyJavaMethods;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;
 import brooklyn.util.exceptions.Exceptions;
@@ -84,7 +85,7 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
     }
 
     public boolean isJmxSslEnabled() {
-        return isJmxEnabled() && GroovyJavaMethods.truth(entity.getConfig(UsesJmx.JMX_SSL_ENABLED));
+        return isJmxEnabled() && groovyTruth(entity.getConfig(UsesJmx.JMX_SSL_ENABLED));
     }
 
     /**
@@ -274,7 +275,7 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
      */
     protected boolean checkForAndInstallJava6or7() {
         Optional<String> version = getCurrentJavaVersion();
-        if (version.isPresent() && (version.get().startsWith("1.7") || version.get().startsWith("1.6"))) {
+        if (version.isPresent() && (version.get().startsWith("1.8") || version.get().startsWith("1.7") || version.get().startsWith("1.6"))) {
             log.debug("Java version {} already installed at {}@{}", new Object[]{version.get(), getEntity(), getLocation()});
             return true;
         } else {
@@ -284,6 +285,25 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
                         new Object[]{version.get(), getEntity(), getLocation()});
             }
             return tryJavaInstall("latest", BashCommands.installJava7Or6OrFail()) == 0;
+        }
+    }
+
+    /**
+     * Checks for the presence of Java 7 or 8 on the entity's location, installing if necessary.
+     * @return true if Java 7 or 8 was found on the machine or if it was installed correctly, otherwise false.
+     */
+    protected boolean checkForAndInstallJava7or8() {
+        Optional<String> version = getCurrentJavaVersion();
+        if (version.isPresent() && (version.get().startsWith("1.8") || version.get().startsWith("1.7"))) {
+            log.debug("Java version {} already installed at {}@{}", new Object[]{version.get(), getEntity(), getLocation()});
+            return true;
+        } else {
+            // Let's hope not!
+            if (version.isPresent()) {
+                log.debug("Found old Java version {} on {}@{}. Going to install latest Java version.",
+                        new Object[]{version.get(), getEntity(), getLocation()});
+            }
+            return tryJavaInstall("latest", BashCommands.installJava7OrFail()) == 0;
         }
     }
 
@@ -315,7 +335,7 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
         }
     }
 
-    private int tryJavaInstall(String version, String command) {
+    protected int tryJavaInstall(String version, String command) {
         try {
             getLocation().acquireMutex("installing", "installing Java at " + getLocation());
             log.debug("Installing Java {} at {}@{}", new Object[]{version, getEntity(), getLocation()});
@@ -351,6 +371,27 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
         } else {
             log.debug("Found no Java installed at {}@{}", getEntity(), getLocation());
             return Optional.absent();
+        }
+    }
+
+    /**
+     * Answers one of "OpenJDK", "Oracle", or other vendor info.
+     */
+    protected Optional<String> getCurrentJavaVendor() {
+        // TODO Also handle IBM jvm
+        log.debug("Checking Java vendor at {}@{}", getEntity(), getLocation());
+        ProcessTaskWrapper<Integer> versionCommand = Entities.submit(getEntity(), SshTasks.newSshExecTaskFactory(
+                getLocation(), "java -version 2>&1 | awk 'NR==2 {print $1}'"));
+        versionCommand.get();
+        String stdOut = versionCommand.getStdout().trim();
+        if (Strings.isBlank(stdOut)) {
+            log.debug("Found no Java installed at {}@{}", getEntity(), getLocation());
+            return Optional.absent();
+        } else if ("Java(TM)".equals(stdOut)) {
+            log.debug("Found Java version at {}@{}: {}", new Object[] {getEntity(), getLocation(), stdOut});
+            return Optional.of("Oracle");
+        } else {
+            return Optional.of(stdOut);
         }
     }
 
@@ -395,26 +436,29 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
             log.warn("Error checking/fixing Java hostname bug (continuing): "+e, e);
         }
     }
-    
+
     @Override
-    public void start() {
+    public void setup() {
         DynamicTasks.queue("install java", new Runnable() { public void run() {
             installJava();
         }});
-            
+
         // TODO check java version
-        
-        if (isJmxEnabled()) {
-            DynamicTasks.queue("install jmx", new Runnable() { public void run() {
-                installJmxSupport(); }}); 
-        }
 
         if (getEntity().getConfig(UsesJava.CHECK_JAVA_HOSTNAME_BUG)) {
             DynamicTasks.queue("check java hostname bug", new Runnable() { public void run() {
                 checkJavaHostnameBug(); }});
         }
+    }
 
-        super.start();
+    @Override
+    public void resources() {
+        super.resources();
+
+        if (isJmxEnabled()) {
+            DynamicTasks.queue("install jmx", new Runnable() { public void run() {
+                installJmxSupport(); }});
+        }
     }
 
 }

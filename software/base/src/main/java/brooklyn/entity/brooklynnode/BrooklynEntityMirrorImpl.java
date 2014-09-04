@@ -33,9 +33,7 @@ import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.BrooklynTaskTags;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityFunctions;
-import brooklyn.entity.basic.Lifecycle;
 import brooklyn.entity.effector.EffectorBody;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.Sensors;
 import brooklyn.event.feed.http.HttpFeed;
 import brooklyn.event.feed.http.HttpPollConfig;
@@ -43,6 +41,7 @@ import brooklyn.util.collections.Jsonya;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.config.ConfigBag;
 import brooklyn.util.exceptions.Exceptions;
+import brooklyn.util.guava.Functionals;
 import brooklyn.util.http.HttpTool;
 import brooklyn.util.http.HttpTool.HttpClientBuilder;
 import brooklyn.util.http.HttpToolResponse;
@@ -53,6 +52,8 @@ import brooklyn.util.task.Tasks;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
+import com.google.common.net.MediaType;
 import com.google.gson.Gson;
 
 public class BrooklynEntityMirrorImpl extends AbstractEntity implements BrooklynEntityMirror {
@@ -61,6 +62,11 @@ public class BrooklynEntityMirrorImpl extends AbstractEntity implements Brooklyn
     
     private HttpFeed mirror;
     
+
+    //Passively mirror entity's state
+    @Override
+    protected void initEnrichers() {}
+
     @Override
     public void init() {
         super.init();
@@ -90,10 +96,9 @@ public class BrooklynEntityMirrorImpl extends AbstractEntity implements Brooklyn
             .period(getConfig(POLL_PERIOD))
             .poll(HttpPollConfig.forMultiple()
                 .onSuccess(mirrorSensors)
-                .onFailureOrException(EntityFunctions.settingSensorsConstantFunction(this, MutableMap.<AttributeSensor<?>,Object>of(
-                    Attributes.SERVICE_STATE, Lifecycle.ON_FIRE,
-                    MIRROR_STATUS, "error contacting service"
-                    ))) )
+                .onFailureOrException(Functionals.function(EntityFunctions.updatingSensorMapEntry(this, Attributes.SERVICE_PROBLEMS, "mirror-feed",
+                        Suppliers.ofInstance("error contacting service")
+                    ))))
             .build();
     }
 
@@ -138,7 +143,7 @@ public class BrooklynEntityMirrorImpl extends AbstractEntity implements Brooklyn
             HttpToolResponse result = null;
             byte[] content;
             try {
-                result = HttpTool.httpPost(client, uri, MutableMap.of(com.google.common.net.HttpHeaders.CONTENT_TYPE, "application/json"), 
+                result = HttpTool.httpPost(client, uri, MutableMap.of(com.google.common.net.HttpHeaders.CONTENT_TYPE, MediaType.JSON_UTF_8.toString()), 
                     Jsonya.of(args).toString().getBytes());
                 content = result.getContent();
             } catch (Exception e) {

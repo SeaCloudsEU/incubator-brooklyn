@@ -18,24 +18,25 @@
  */
 package brooklyn.policy;
 
-import brooklyn.entity.trait.Identifiable;
+import javax.annotation.Nullable;
+
+import brooklyn.basic.BrooklynObject;
 
 /**
- * EntityAdjuncts are supplementary logic that can be attached to Entities, providing sensor enrichment
- * or enabling policy
+ * EntityAdjuncts are supplementary logic that can be attached to Entities, 
+ * such as providing sensor enrichment or event-driven policy behavior
  */
-public interface EntityAdjunct extends Identifiable {
+public interface EntityAdjunct extends BrooklynObject {
     /**
-     * A unique id for this adjunct
+     * A unique id for this adjunct, typically created by the system with no meaning
      */
     @Override
     String getId();
 
     /**
-     * Get the name assigned to this adjunct
-     *
-     * @return the name assigned to the adjunct
+     * @deprecated since 0.7; use {@link #getDisplayName()}
      */
+    @Deprecated
     String getName();
     
     /**
@@ -44,7 +45,17 @@ public interface EntityAdjunct extends Identifiable {
     boolean isDestroyed();
     
     /**
-     * Whether the adjunct is available
+     * Whether the adjunct is available/active
      */
     boolean isRunning();
+    
+    /**
+     * An optional tag used to identify adjuncts with a specific purpose, typically created by the caller.
+     * This is used to prevent multiple instances with the same purpose from being created,
+     * and to access and customize adjuncts so created.
+     * <p>
+     * This will be included in the call to {@link #getTags()}.
+     */
+    @Nullable String getUniqueTag();
+
 }

@@ -25,12 +25,12 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import com.google.common.collect.ImmutableMap;
+import com.google.common.annotations.Beta;
 
+import brooklyn.basic.BrooklynObject;
 import brooklyn.config.ConfigKey;
 import brooklyn.config.ConfigKey.HasConfigKey;
 import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.entity.trait.Identifiable;
 import brooklyn.event.AttributeSensor;
 import brooklyn.location.Location;
 import brooklyn.management.Task;
@@ -53,7 +53,7 @@ import brooklyn.util.guava.Maybe;
  * 
  * @see brooklyn.entity.basic.AbstractEntity
  */
-public interface Entity extends Identifiable {
+public interface Entity extends BrooklynObject {
     /**
      * The unique identifier for this entity.
      */
@@ -71,7 +71,7 @@ public interface Entity extends Identifiable {
     String getDisplayName();
     
     /** 
-     * A URL pointing to an image which can be used to represent this icon.
+     * A URL pointing to an image which can be used to represent this entity.
      */
     @Nullable String getIconUrl();
     
@@ -246,16 +246,27 @@ public interface Entity extends Identifiable {
     boolean removeEnricher(Enricher enricher);
     
     /** 
-     * Tags are arbitrary objects which can be attached to an entity for subsequent reference.
-     * They must not be null (as {@link ImmutableMap} may be used under the covers; also there is little point!);
-     * and they should be amenable to our persistence (on-disk serialization) and our JSON serialization in the REST API.
-     * 
-     * @return An immutable copy of the set of tags on this entity. 
-     * Note {@link #containsTag(Object)} will be more efficient,
-     * and {@link #addTag(Object)} and {@link #removeTag(Object)} will not work. */
+     * @since 0.7
+     * @deprecated since 0.7; see {@link #getTagSupport()}
+     */
+    @Deprecated
     Set<Object> getTags();
+    /** 
+     * @since 0.7
+     * @deprecated since 0.7; see {@link #getTagSupport()}
+     */
+    @Deprecated
     boolean addTag(@Nonnull Object tag);
+    /** 
+     * @since 0.7
+     * @deprecated since 0.7; see {@link #getTagSupport()}
+     */
+    @Deprecated
     boolean removeTag(@Nonnull Object tag);
+    /** 
+     * @since 0.7
+     * @deprecated since 0.7; see {@link #getTagSupport()}
+     */
+    @Deprecated
     boolean containsTag(@Nonnull Object tag);
-
 }

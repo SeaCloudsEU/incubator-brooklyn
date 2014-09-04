@@ -19,11 +19,96 @@
 package brooklyn.entity.proxy;
 
 import java.io.Serializable;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import brooklyn.util.collections.MutableMap;
+import brooklyn.util.flags.TypeCoercions;
+
+import com.google.common.base.Function;
+import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 
 public class ProxySslConfig implements Serializable {
 
+    private static final long serialVersionUID = -2692754611458939617L;
+    private static final Logger LOG = LoggerFactory.getLogger(ProxySslConfig.class);
+    private static final AtomicBoolean initialized = new AtomicBoolean(false);
+
+    /** Setup type coercion. */
+    @SuppressWarnings("rawtypes")
+    public static void init() {
+        if (initialized.getAndSet(true)) return;
+
+        TypeCoercions.registerAdapter(Map.class, ProxySslConfig.class, new Function<Map, ProxySslConfig>() {
+            @Override
+            public ProxySslConfig apply(final Map input) {
+                Map map = MutableMap.copyOf(input);
+                ProxySslConfig.Builder sslConfig = ProxySslConfig.builder()
+                        .certificateSourceUrl((String) map.remove("certificateSourceUrl"))
+                        .keySourceUrl((String) map.remove("keySourceUrl"))
+                        .certificateDestination((String) map.remove("certificateDestination"))
+                        .keyDestination((String) map.remove("keyDestination"));
+                Object targetIsSsl = map.remove("targetIsSsl");
+                if (targetIsSsl != null) {
+                    sslConfig.targetIsSsl(TypeCoercions.coerce(targetIsSsl, Boolean.TYPE));
+                }
+                Object reuseSessions = map.remove("reuseSessions");
+                if (reuseSessions != null) {
+                    sslConfig.reuseSessions(TypeCoercions.coerce(reuseSessions, Boolean.TYPE));
+                }
+                if (!map.isEmpty()) {
+                    LOG.info("Extra unused keys found in ProxySslConfig config: [{}]",
+                            Joiner.on(",").withKeyValueSeparator("=").join(map));
+                }
+                return sslConfig.build();
+            }
+        });
+    }
+
+    static {
+        init();
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+    
+    public static class Builder {
+        protected String certificateSourceUrl;
+        protected String keySourceUrl;
+        protected String certificateDestination;
+        protected String keyDestination;
+        protected boolean targetIsSsl = false;
+        protected boolean reuseSessions = false;
+        
+        public Builder certificateSourceUrl(String val) {
+            certificateSourceUrl = val; return this;
+        }
+        public Builder keySourceUrl(String val) {
+            keySourceUrl = val; return this;
+        }
+        public Builder certificateDestination(String val) {
+            certificateDestination = val; return this;
+        }
+        public Builder keyDestination(String val) {
+            keyDestination = val; return this;
+        }
+        public Builder targetIsSsl(boolean val) {
+            targetIsSsl = val; return this;
+        }
+        public Builder reuseSessions(boolean val) {
+            reuseSessions = val; return this;
+        }
+        public ProxySslConfig build() {
+            ProxySslConfig result = new ProxySslConfig(this);
+            return result;
+        }
+    }
+    
     /** 
      * url's for the SSL certificates required at the server
      * <p>
@@ -73,10 +158,30 @@ public class ProxySslConfig implements Serializable {
      * corresponds to nginx setting: proxy_ssl_session_reuse on|off */
     boolean reuseSessions = false;
 
+    /**
+     * @deprecated since 0.7.0; use {@link ProxySslConfig#builder()}
+     */
+    @Deprecated
+    public ProxySslConfig() {
+    }
+    
+    protected ProxySslConfig(Builder builder) {
+        certificateSourceUrl = builder.certificateSourceUrl;
+        keySourceUrl = builder.keySourceUrl;
+        certificateDestination = builder.certificateDestination;
+        keyDestination = builder.keyDestination;
+        targetIsSsl = builder.targetIsSsl;
+        reuseSessions = builder.reuseSessions;
+    }
+    
     public String getCertificateSourceUrl() {
         return certificateSourceUrl;
     }
 
+    /**
+     * @deprecated since 0.7.0; use {@link ProxySslConfig#builder()}
+     */
+    @Deprecated
     public void setCertificateSourceUrl(String certificateSourceUrl) {
         this.certificateSourceUrl = certificateSourceUrl;
     }
@@ -85,6 +190,10 @@ public class ProxySslConfig implements Serializable {
         return keySourceUrl;
     }
 
+    /**
+     * @deprecated since 0.7.0; use {@link ProxySslConfig#builder()}
+     */
+    @Deprecated
     public void setKeySourceUrl(String keySourceUrl) {
         this.keySourceUrl = keySourceUrl;
     }
@@ -93,6 +202,10 @@ public class ProxySslConfig implements Serializable {
         return certificateDestination;
     }
 
+    /**
+     * @deprecated since 0.7.0; use {@link ProxySslConfig#builder()}
+     */
+    @Deprecated
     public void setCertificateDestination(String certificateDestination) {
         this.certificateDestination = certificateDestination;
     }
@@ -101,6 +214,10 @@ public class ProxySslConfig implements Serializable {
         return keyDestination;
     }
 
+    /**
+     * @deprecated since 0.7.0; use {@link ProxySslConfig#builder()}
+     */
+    @Deprecated
     public void setKeyDestination(String keyDestination) {
         this.keyDestination = keyDestination;
     }
@@ -109,6 +226,10 @@ public class ProxySslConfig implements Serializable {
         return targetIsSsl;
     }
 
+    /**
+     * @deprecated since 0.7.0; use {@link ProxySslConfig#builder()}
+     */
+    @Deprecated
     public void setTargetIsSsl(boolean targetIsSsl) {
         this.targetIsSsl = targetIsSsl;
     }
@@ -117,10 +238,14 @@ public class ProxySslConfig implements Serializable {
         return reuseSessions;
     }
 
+    /**
+     * @deprecated since 0.7.0; use {@link ProxySslConfig#builder()}
+     */
+    @Deprecated
     public void setReuseSessions(boolean reuseSessions) {
         this.reuseSessions = reuseSessions;
     }
-    
+
     // autogenerated hash code and equals; nothing special required
 
     @Override

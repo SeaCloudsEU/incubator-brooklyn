@@ -38,6 +38,7 @@ import javax.ws.rs.core.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.basic.BrooklynTypes;
 import brooklyn.catalog.BrooklynCatalog;
 import brooklyn.catalog.CatalogItem;
 import brooklyn.config.ConfigKey;
@@ -50,7 +51,6 @@ import brooklyn.entity.basic.BasicApplication;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityInternal;
 import brooklyn.entity.basic.EntityLocal;
-import brooklyn.entity.basic.EntityTypes;
 import brooklyn.entity.trait.Startable;
 import brooklyn.location.Location;
 import brooklyn.location.LocationRegistry;
@@ -118,7 +118,7 @@ public class BrooklynRestResourceUtils {
             if (policy.equals(p.getId())) return p;
         }
         for (Policy p: entity.getPolicies()) {
-            if (policy.equals(p.getName())) return p;
+            if (policy.equals(p.getDisplayName())) return p;
         }
         
         throw WebResourceUtils.notFound("Cannot find policy '%s' in entity '%s'", policy, entity);
@@ -341,7 +341,7 @@ public class BrooklynRestResourceUtils {
         if (clazz.isInterface()) {
             result = brooklyn.entity.proxying.EntitySpec.create(clazz);
         } else {
-            result = brooklyn.entity.proxying.EntitySpec.create(Entity.class).impl(clazz);
+            result = brooklyn.entity.proxying.EntitySpec.create(Entity.class).impl(clazz).additionalInterfaces(Reflections.getAllInterfaces(clazz));
         }
         if (!Strings.isEmpty(name)) result.displayName(name);
         result.configure( convertFlagsToKeys(result.getType(), config) );
@@ -393,7 +393,7 @@ public class BrooklynRestResourceUtils {
     private Map<?,?> convertFlagsToKeys(Class<? extends Entity> javaType, Map<?, ?> config) {
         if (config==null || config.isEmpty() || javaType==null) return config;
         
-        Map<String, ConfigKey<?>> configKeys = EntityTypes.getDefinedConfigKeys(javaType);
+        Map<String, ConfigKey<?>> configKeys = BrooklynTypes.getDefinedConfigKeys(javaType);
         Map<Object,Object> result = new LinkedHashMap<Object,Object>();
         for (Map.Entry<?,?> entry: config.entrySet()) {
             log.debug("Setting key {} to {} for REST creation of {}", new Object[] { entry.getKey(), entry.getValue(), javaType});

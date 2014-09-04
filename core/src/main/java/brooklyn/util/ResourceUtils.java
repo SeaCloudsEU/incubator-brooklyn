@@ -46,6 +46,7 @@ import brooklyn.management.classloading.JavaBrooklynClassLoadingContext;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.javalang.Threads;
+import brooklyn.util.net.Networking;
 import brooklyn.util.net.Urls;
 import brooklyn.util.os.Os;
 import brooklyn.util.stream.Streams;
@@ -65,6 +66,8 @@ public class ResourceUtils {
     private BrooklynClassLoadingContext loader = null;
     private String context = null;
     private Object contextObject = null;
+    
+    static { Networking.init(); }
     
     /**
      * Creates a {@link ResourceUtils} object with a specific class loader and context.
@@ -440,9 +443,27 @@ public class ResourceUtils {
     
     public String getClassLoaderDir(String resourceInThatDir) {
         resourceInThatDir = Strings.removeFromStart(resourceInThatDir, "/");
-        URL url = getLoader().getResource(resourceInThatDir);
-        if (url==null) throw new NoSuchElementException("Resource ("+resourceInThatDir+") not found");
+        URL resourceUrl = getLoader().getResource(resourceInThatDir);
+        if (resourceUrl==null) throw new NoSuchElementException("Resource ("+resourceInThatDir+") not found");
 
+        URL containerUrl = getContainerUrl(resourceUrl, resourceInThatDir);
+
+        if (!"file".equals(containerUrl.getProtocol())) throw new IllegalStateException("Resource ("+resourceInThatDir+") not on file system (at "+containerUrl+")");
+
+        //convert from file: URL to File
+        File file;
+        try {
+            file = new File(containerUrl.toURI());
+        } catch (URISyntaxException e) {
+            throw new IllegalStateException("Resource ("+resourceInThatDir+") found at invalid URI (" + containerUrl + ")", e);
+        }
+        
+        if (!file.exists()) throw new IllegalStateException("Context class url substring ("+containerUrl+") not found on filesystem");
+        return file.getPath();
+        
+    }
+
+    public static URL getContainerUrl(URL url, String resourceInThatDir) {
         //Switching from manual parsing of jar: and file: URLs to java provided functionality.
         //The old code was breaking on any Windows path and instead of fixing it, using
         //the provided Java APIs seemed like the better option since they are already tested
@@ -472,20 +493,7 @@ public class ResourceUtils {
                 throw new IllegalStateException("Resource ("+resourceInThatDir+") found at invalid URL parent (" + parent + ")", e);
             }
         }
-        
-        if (!"file".equals(url.getProtocol())) throw new IllegalStateException("Resource ("+resourceInThatDir+") not on file system (at "+url+")");
-
-        //convert from file: URL to File
-        File file;
-        try {
-            file = new File(url.toURI());
-        } catch (URISyntaxException e) {
-            throw new IllegalStateException("Resource ("+resourceInThatDir+") found at invalid URI (" + url + ")", e);
-        }
-        
-        if (!file.exists()) throw new IllegalStateException("Context class url substring ("+url+") not found on filesystem");
-        return file.getPath();
-        
+        return url;
     }
     
     /** @deprecated since 0.7.0 use {@link Streams#readFullyString(InputStream) */ @Deprecated

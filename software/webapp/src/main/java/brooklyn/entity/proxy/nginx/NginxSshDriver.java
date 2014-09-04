@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 
 import brooklyn.entity.basic.AbstractSoftwareProcessSshDriver;
 import brooklyn.entity.basic.Attributes;
+import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityInternal;
 import brooklyn.entity.basic.Lifecycle;
 import brooklyn.entity.basic.lifecycle.ScriptHelper;
@@ -38,11 +39,13 @@ import brooklyn.management.ManagementContext;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.net.Networking;
+import brooklyn.util.os.Os;
 import brooklyn.util.ssh.BashCommands;
 import brooklyn.util.stream.Streams;
 import brooklyn.util.task.DynamicTasks;
 import brooklyn.util.task.Tasks;
 import brooklyn.util.task.ssh.SshTasks;
+import brooklyn.util.task.ssh.SshTasks.OnFailingTask;
 import brooklyn.util.text.Strings;
 
 import com.google.common.collect.ImmutableList;
@@ -113,14 +116,18 @@ public class NginxSshDriver extends AbstractSoftwareProcessSshDriver implements 
     }
 
     @Override
-    public void install() {
-        // will fail later if can't sudo (if sudo is required)
-        DynamicTasks.queueIfPossible(SshTasks.dontRequireTtyForSudo(getMachine(), false)).orSubmitAndBlock();
+    public void preInstall() {
+        resolver = Entities.newDownloader(this);
+        setExpandedInstallDir(Os.mergePaths(getInstallDir(), resolver.getUnpackedDirectoryName(format("nginx-%s", getVersion()))));
+    }
 
-        DownloadResolver nginxResolver = mgmt().getEntityDownloadsManager().newDownloader(this);
-        List<String> nginxUrls = nginxResolver.getTargets();
-        String nginxSaveAs = nginxResolver.getFilename();
-        setExpandedInstallDir(getInstallDir()+"/" + nginxResolver.getUnpackedDirectoryName(format("nginx-%s", getVersion())));
+    @Override
+    public void install() {
+        // inessential here, installation will fail later if it needs to sudo (eg if using port 80)
+        DynamicTasks.queueIfPossible(SshTasks.dontRequireTtyForSudo(getMachine(), OnFailingTask.WARN_OR_IF_DYNAMIC_FAIL_MARKING_INESSENTIAL)).orSubmitAndBlock();
+
+        List<String> nginxUrls = resolver.getTargets();
+        String nginxSaveAs = resolver.getFilename();
 
         boolean sticky = ((NginxController) entity).isSticky();
         boolean isMac = getMachine().getOsDetails().isMac();
@@ -379,8 +386,8 @@ public class NginxSshDriver extends AbstractSoftwareProcessSshDriver implements 
         // calling waitForEntityStart()), we can guarantee that the start-thread's call to update will happen after
         // this call to reload. So we this can be a no-op, and just rely on that subsequent call to update.
 
-        Lifecycle lifecycle = entity.getAttribute(NginxController.SERVICE_STATE);
         if (!isRunning()) {
+            Lifecycle lifecycle = entity.getAttribute(NginxController.SERVICE_STATE_ACTUAL);
             log.debug("Ignoring reload of nginx "+entity+", because service is not running (state "+lifecycle+")");
             return;
         }

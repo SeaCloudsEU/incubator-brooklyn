@@ -39,6 +39,7 @@ require.config({
         "moment":"libs/moment.min",
         "handlebars":"libs/handlebars-1.0.rc.1",
         "brooklyn":"libs/brooklyn",
+        "brooklyn-view":"libs/brooklyn-view",
         "brooklyn-utils":"libs/brooklyn-utils",
         "datatables-extensions":"libs/dataTables.extensions",
         "googlemaps":"view/googlemaps",
@@ -79,8 +80,8 @@ require.config({
  * Inclusion of brooklyn module sets up logging.
  */
 require([
-    "backbone", "router", "brooklyn", "model/ha"
-], function (Backbone, Router, Brooklyn, ha) {
+    "backbone", "brooklyn", "router", "model/ha"
+], function (Backbone, Brooklyn, Router, ha) {
     ha.autoUpdate();
     var router = new Router();
     Backbone.history.start();

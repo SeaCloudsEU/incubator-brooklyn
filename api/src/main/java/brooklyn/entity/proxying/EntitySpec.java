@@ -20,8 +20,6 @@ package brooklyn.entity.proxying;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.Serializable;
-import java.lang.reflect.Modifier;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -32,18 +30,18 @@ import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.basic.AbstractBrooklynObjectSpec;
 import brooklyn.config.ConfigKey;
 import brooklyn.config.ConfigKey.HasConfigKey;
 import brooklyn.entity.Entity;
+import brooklyn.entity.Group;
 import brooklyn.location.Location;
 import brooklyn.management.Task;
 import brooklyn.policy.Enricher;
 import brooklyn.policy.EnricherSpec;
 import brooklyn.policy.Policy;
 import brooklyn.policy.PolicySpec;
-import brooklyn.util.exceptions.Exceptions;
 
-import com.google.common.base.Objects;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -62,7 +60,7 @@ import com.google.common.collect.Sets;
  * 
  * @author aled
  */
-public class EntitySpec<T extends Entity> implements Serializable {
+public class EntitySpec<T extends Entity> extends AbstractBrooklynObjectSpec<T,EntitySpec<T>> {
 
     private static final long serialVersionUID = -2247153452919128990L;
     
@@ -108,6 +106,7 @@ public class EntitySpec<T extends Entity> implements Serializable {
     public static <T extends Entity> EntitySpec<T> create(EntitySpec<T> spec) {
         EntitySpec<T> result = create(spec.getType())
                 .displayName(spec.getDisplayName())
+                .tags(spec.getTags())
                 .additionalInterfaces(spec.getAdditionalInterfaces())
                 .configure(spec.getConfig())
                 .configure(spec.getFlags())
@@ -116,7 +115,9 @@ public class EntitySpec<T extends Entity> implements Serializable {
                 .enricherSpecs(spec.getEnricherSpecs())
                 .enrichers(spec.getEnrichers())
                 .addInitializers(spec.getInitializers())
-                .children(spec.getChildren());
+                .children(spec.getChildren())
+                .members(spec.getMembers())
+                .groups(spec.getGroups());
         
         if (spec.getParent() != null) result.parent(spec.getParent());
         if (spec.getImplementation() != null) result.impl(spec.getImplementation());
@@ -128,9 +129,8 @@ public class EntitySpec<T extends Entity> implements Serializable {
         return new EntitySpec<T>(type);
     }
 
-    private final Class<T> type;
     private String id;
-    private String displayName;
+    
     private Class<? extends T> impl;
     private Entity parent;
     private final Map<String, Object> flags = Maps.newLinkedHashMap();
@@ -143,31 +143,32 @@ public class EntitySpec<T extends Entity> implements Serializable {
     private final Set<Class<?>> additionalInterfaces = Sets.newLinkedHashSet();
     private final List<EntityInitializer> entityInitializers = Lists.newArrayList();
     private final List<EntitySpec<?>> children = Lists.newArrayList();
+    private final List<Entity> members = Lists.newArrayList();
+    private final List<Group> groups = Lists.newArrayList();
     private volatile boolean immutable;
     
     public EntitySpec(Class<T> type) {
-        this.type = type;
+        super(type);
     }
     
-    /**
-     * @return The type of the entity
-     */
+    @SuppressWarnings("unchecked")
     public Class<T> getType() {
-        return type;
+        return (Class<T>)super.getType();
+    }
+    
+    @Override
+    protected void checkValidType(Class<? extends T> type) {
+        // EntitySpec does nothing.  Other specs do check it's an implementation etc.
     }
     
     /**
      * @return The id to use when creating the entity, or null if allow brooklyn to generate a unique id.
+    /**
+     * @deprecated since 0.7.0; instead let the management context pick a random+unique id
      */
+    @Deprecated
     public String getId() {
         return id;
-    }
-    
-    /**
-     * @return The display name of the entity
-     */
-    public String getDisplayName() {
-        return displayName;
     }
     
     /**
@@ -196,6 +197,14 @@ public class EntitySpec<T extends Entity> implements Serializable {
     
     public List<EntitySpec<?>> getChildren() {
         return children;
+    }
+    
+    public List<Entity> getMembers() {
+        return members;
+    }
+    
+    public List<Group> getGroups() {
+        return groups;
     }
     
     /**
@@ -240,21 +249,19 @@ public class EntitySpec<T extends Entity> implements Serializable {
         return locations;
     }
 
+    /**
+     * @deprecated since 0.7.0; instead let the management context pick a random+unique id
+     */
+    @Deprecated
     public EntitySpec<T> id(String val) {
         checkMutable();
         id = val;
         return this;
     }
 
-    public EntitySpec<T> displayName(String val) {
-        checkMutable();
-        displayName = val;
-        return this;
-    }
-
     public EntitySpec<T> impl(Class<? extends T> val) {
         checkMutable();
-        checkIsImplementation(checkNotNull(val, "impl"));
+        checkIsImplementation(checkNotNull(val, "impl"), getType());
         checkIsNewStyleImplementation(val);
         impl = val;
         return this;
@@ -307,6 +314,30 @@ public class EntitySpec<T extends Entity> implements Serializable {
     public EntitySpec<T> child(EntitySpec<?> child) {
         checkMutable();
         children.add(child);
+        return this;
+    }
+
+    public EntitySpec<T> members(Iterable<? extends Entity> members) {
+        checkMutable();
+        Iterables.addAll(this.members, members);
+        return this;
+    }
+
+    public EntitySpec<T> member(Entity member) {
+        checkMutable();
+        members.add(member);
+        return this;
+    }
+
+    public EntitySpec<T> groups(Iterable<? extends Group> groups) {
+        checkMutable();
+        Iterables.addAll(this.groups, groups);
+        return this;
+    }
+
+    public EntitySpec<T> group(Group group) {
+        checkMutable();
+        groups.add(group);
         return this;
     }
 
@@ -442,34 +473,8 @@ public class EntitySpec<T extends Entity> implements Serializable {
         return this;
     }
 
-    @Override
-    public String toString() {
-        return Objects.toStringHelper(this).add("type", type).toString();
-    }
-    
     private void checkMutable() {
         if (immutable) throw new IllegalStateException("Cannot modify immutable entity spec "+this);
     }
     
-    // TODO Duplicates method in BasicEntityTypeRegistry
-    private void checkIsImplementation(Class<?> val) {
-        if (!type.isAssignableFrom(val)) throw new IllegalStateException("Implementation "+val+" does not implement "+type);
-        if (val.isInterface()) throw new IllegalStateException("Implementation "+val+" is an interface, but must be a non-abstract class");
-        if (Modifier.isAbstract(val.getModifiers())) throw new IllegalStateException("Implementation "+val+" is abstract, but must be a non-abstract class");
-    }
-
-    // TODO Duplicates method in BasicEntityTypeRegistry, and InternalEntityFactory.isNewStyleEntity
-    private void checkIsNewStyleImplementation(Class<?> implClazz) {
-        try {
-            implClazz.getConstructor(new Class[0]);
-        } catch (NoSuchMethodException e) {
-            throw new IllegalStateException("Implementation "+implClazz+" must have a no-argument constructor");
-        } catch (SecurityException e) {
-            throw Exceptions.propagate(e);
-        }
-        
-        if (implClazz.isInterface()) throw new IllegalStateException("Implementation "+implClazz+" is an interface, but must be a non-abstract class");
-        if (Modifier.isAbstract(implClazz.getModifiers())) throw new IllegalStateException("Implementation "+implClazz+" is abstract, but must be a non-abstract class");
-    }
-
 }

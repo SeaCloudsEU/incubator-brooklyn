@@ -18,6 +18,7 @@
  */
 package brooklyn.entity.rebind.persister;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.String.format;
 
 import java.io.File;
@@ -33,7 +34,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.annotation.Nullable;
 
-import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,6 +45,7 @@ import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.exceptions.FatalConfigurationRuntimeException;
 import brooklyn.util.internal.ssh.process.ProcessTool;
+import brooklyn.util.io.FileUtil;
 import brooklyn.util.os.Os;
 import brooklyn.util.os.Os.DeletionResult;
 
@@ -77,7 +78,7 @@ public class FileBasedObjectStore implements PersistenceObjectStore {
      * @param basedir
      */
     public FileBasedObjectStore(File basedir) {
-        this.basedir = basedir;
+        this.basedir = checkPersistenceDirPlausible(basedir);
         this.executor = MoreExecutors.listeningDecorator(Executors.newCachedThreadPool());
         log.debug("File-based objectStore will use directory {}", basedir);
         // don't check accessible yet, we do that when we prepare
@@ -120,9 +121,16 @@ public class FileBasedObjectStore implements PersistenceObjectStore {
         if (!prepared) throw new IllegalStateException("Not yet prepared: "+this);
         
         File dir = new File(getBaseDir(), subPath);
-        if (!dir.mkdir())
+        if (dir.mkdir()) {
+            try {
+                FileUtil.setFilePermissionsTo700(dir);
+            } catch (IOException e) {
+                log.warn("Unable to set sub-directory permissions to 700 (continuing): "+dir);
+            }
+        } else {
             if (!dir.exists())
-                throw new IllegalStateException("Cannot create "+dir+"; call returned false"); 
+                throw new IllegalStateException("Cannot create "+dir+"; call returned false");
+        }
         checkPersistenceDirAccessible(dir);
     }
 
@@ -260,7 +268,9 @@ public class FileBasedObjectStore implements PersistenceObjectStore {
 
             if (!dir.exists()) {
                 boolean success = dir.mkdirs();
-                if (!success) {
+                if (success) {
+                    FileUtil.setFilePermissionsTo700(dir);
+                } else {
                     throw new FatalConfigurationRuntimeException("Failed to create persistence directory "+dir);
                 }
             }
@@ -270,6 +280,16 @@ public class FileBasedObjectStore implements PersistenceObjectStore {
         }
         
         prepared = true;        
+    }
+
+    protected File checkPersistenceDirPlausible(File dir) {
+        checkNotNull(dir, "directory");
+        if (!dir.exists()) return dir;
+        if (dir.isFile()) throw new FatalConfigurationRuntimeException("Invalid persistence directory" + dir + ": must not be a file");
+        if (!(dir.canRead() && dir.canWrite())) throw new FatalConfigurationRuntimeException("Invalid persistence directory" + dir + ": " +
+                (!dir.canRead() ? "not readable" :
+                        (!dir.canWrite() ? "not writable" : "unknown reason")));
+        return dir;
     }
 
     protected void checkPersistenceDirAccessible(File dir) {
@@ -304,7 +324,9 @@ public class FileBasedObjectStore implements PersistenceObjectStore {
         String timestamp = new SimpleDateFormat("yyyyMMdd-hhmmssSSS").format(new Date());
         File backupDir = new File(parentDir, simpleName+"."+timestamp+".bak");
         
-        copyDir(dir, backupDir);
+        FileUtil.copyDir(dir, backupDir);
+        FileUtil.setFilePermissionsTo700(backupDir);
+        
         return backupDir;
     }
 
@@ -314,7 +336,7 @@ public class FileBasedObjectStore implements PersistenceObjectStore {
         String timestamp = new SimpleDateFormat("yyyyMMdd-hhmmssSSS").format(new Date());
         File newDir = new File(parentDir, simpleName+"."+timestamp+".bak");
 
-        moveDir(dir, newDir);
+        FileUtil.moveDir(dir, newDir);
         return newDir;
     }
 
@@ -364,36 +386,20 @@ public class FileBasedObjectStore implements PersistenceObjectStore {
         srcFile.delete();
         throw new IOException("Could not move "+destFile+" to "+srcFile);
     }
-    static void moveDir(File srcDir, File destDir) throws IOException, InterruptedException {
-        if (!Os.isMicrosoftWindows()) {
-            String cmd = "mv '"+srcDir.getAbsolutePath()+"' '"+destDir.getAbsolutePath()+"'";
-            Process proc = Runtime.getRuntime().exec(cmd);
-            proc.waitFor();
-            if (proc.exitValue() == 0) return;
-        }
-        
-        FileUtils.moveDirectory(srcDir, destDir);
-    }
-    static void copyDir(File srcDir, File destDir) throws IOException, InterruptedException {
-        if (!Os.isMicrosoftWindows()) {
-            String cmd = "cp -R '"+srcDir.getAbsolutePath()+"' '"+destDir.getAbsolutePath()+"'";
-            Process proc = Runtime.getRuntime().exec(cmd);
-            proc.waitFor();
-            if (proc.exitValue() == 0) return;
-        }
-        
-        FileUtils.copyDirectory(srcDir, destDir);
-    }
-
+    
     /**
-     * Empty if directory exists, but is entirely empty, or only contains empty directories.
+     * True if directory exists, but is entirely empty, or only contains empty directories.
      */
-    public static boolean isMementoDirExistButEmpty(String dir) {
+    static boolean isMementoDirExistButEmpty(String dir) {
         return isMementoDirExistButEmpty(new File(dir));
     }
-    public static boolean isMementoDirExistButEmpty(File dir) {
+    
+    static boolean isMementoDirExistButEmpty(File dir) {
         if (!dir.exists()) return false;
-        for (File sub : dir.listFiles()) {
+        File[] contents = dir.listFiles();
+        if (contents == null) return false;
+        
+        for (File sub : contents) {
             if (sub.isFile()) return false;
             if (sub.isDirectory() && sub.listFiles().length > 0) return false;
         }
@@ -410,5 +416,4 @@ public class FileBasedObjectStore implements PersistenceObjectStore {
         if (!result.wasSuccessful())
             log.warn("Unable to delete persistence dir "+d);
     }
-
 }

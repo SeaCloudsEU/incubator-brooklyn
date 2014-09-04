@@ -32,12 +32,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.basic.AbstractBrooklynObject;
 import brooklyn.config.ConfigKey;
 import brooklyn.config.ConfigKey.HasConfigKey;
-import brooklyn.entity.basic.EntityDynamicType;
-import brooklyn.entity.proxying.InternalLocationFactory;
 import brooklyn.entity.rebind.BasicLocationRebindSupport;
-import brooklyn.entity.rebind.RebindManagerImpl;
 import brooklyn.entity.rebind.RebindSupport;
 import brooklyn.entity.trait.Configurable;
 import brooklyn.event.basic.BasicConfigKey;
@@ -48,17 +46,14 @@ import brooklyn.location.Location;
 import brooklyn.location.LocationSpec;
 import brooklyn.location.geo.HasHostGeoInfo;
 import brooklyn.location.geo.HostGeoInfo;
-import brooklyn.management.ManagementContext;
 import brooklyn.management.internal.LocalLocationManager;
 import brooklyn.management.internal.ManagementContextInternal;
 import brooklyn.mementos.LocationMemento;
 import brooklyn.util.collections.SetFromLiveMap;
 import brooklyn.util.config.ConfigBag;
 import brooklyn.util.flags.FlagUtils;
-import brooklyn.util.flags.SetFromFlag;
 import brooklyn.util.flags.TypeCoercions;
 import brooklyn.util.stream.Streams;
-import brooklyn.util.text.Identifiers;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
@@ -68,6 +63,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.reflect.TypeToken;
 
 /**
  * A basic implementation of the {@link Location} interface.
@@ -77,19 +73,18 @@ import com.google.common.collect.Sets;
  * 
  * Override {@link #configure(Map)} to add special initialization logic.
  */
-public abstract class AbstractLocation implements LocationInternal, HasHostGeoInfo, Configurable {
+public abstract class AbstractLocation extends AbstractBrooklynObject implements LocationInternal, HasHostGeoInfo, Configurable {
     
+    private static final long serialVersionUID = -7495805474138619830L;
+
     /** @deprecated since 0.7.0 shouldn't be public */
     @Deprecated
     public static final Logger LOG = LoggerFactory.getLogger(AbstractLocation.class);
 
     public static final ConfigKey<Location> PARENT_LOCATION = new BasicConfigKey<Location>(Location.class, "parentLocation");
     
-    private final AtomicBoolean configured = new AtomicBoolean(false);
+    private final AtomicBoolean configured = new AtomicBoolean();
     
-    @SetFromFlag(value="id")
-    private String id = Identifiers.makeRandomId(8);
-
     private Reference<Long> creationTimeUtc = new BasicReference<Long>(System.currentTimeMillis());
     
     // _not_ set from flag; configured explicitly in configure, because we also need to update the parent's list of children
@@ -105,16 +100,13 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
 
     private ConfigBag configBag = new ConfigBag();
 
-    private volatile ManagementContext managementContext;
     private volatile boolean managed;
-
-    private boolean _legacyConstruction;
 
     private boolean inConstruction;
 
     private final Map<Class<?>, Object> extensions = Maps.newConcurrentMap();
     
-    private final EntityDynamicType entityType;
+    private final LocationDynamicType locationType;
     
     /**
      * Construct a new instance of an AbstractLocation.
@@ -142,27 +134,18 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
      * <li>abbreviatedName
      * </ul>
      */
-    public AbstractLocation(Map properties) {
+    public AbstractLocation(Map<?,?> properties) {
+        super(properties);
         inConstruction = true;
-        _legacyConstruction = !InternalLocationFactory.FactoryConstructionTracker.isConstructing();
-        if (!_legacyConstruction && properties!=null && !properties.isEmpty()) {
-            LOG.warn("Forcing use of deprecated old-style location construction for "+getClass().getName()+" because properties were specified ("+properties+")");
-            _legacyConstruction = true;
-        }
         
         // When one calls getConfig(key), we want to use the default value specified on *this* location
-        // if it overrides the default config. The easiest way to look up all our config keys is to 
-        // reuse the code for Entity (and this will become identical when locations become first-class
-        // entities). See {@link #getConfig(ConfigKey)}
-        entityType = new EntityDynamicType((Class)getClass());
+        // if it overrides the default config, by using the type object 
+        locationType = new LocationDynamicType(this);
         
-        if (_legacyConstruction) {
-            LOG.warn("Deprecated use of old-style location construction for "+getClass().getName()+"; instead use LocationManager().createLocation(spec)");
-            if (LOG.isDebugEnabled())
-                LOG.debug("Source of use of old-style location construction", new Throwable("Source of use of old-style location construction"));
-            
-            configure(properties);
-            
+        if (isLegacyConstruction()) {
+            AbstractBrooklynObject checkWeGetThis = configure(properties);
+            assert this.equals(checkWeGetThis) : this+" configure method does not return itself; returns "+checkWeGetThis+" instead of "+this;
+
             boolean deferConstructionChecks = (properties.containsKey("deferConstructionChecks") && TypeCoercions.coerce(properties.get("deferConstructionChecks"), Boolean.class));
             if (!deferConstructionChecks) {
                 FlagUtils.checkRequiredFields(this);
@@ -173,15 +156,15 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
     }
 
     protected void assertNotYetManaged() {
-        if (!inConstruction && (managementContext != null && managementContext.getLocationManager().isManaged(this))) {
+        if (!inConstruction && Locations.isManaged(this)) {
             LOG.warn("Configuration being made to {} after deployment; may not be supported in future versions", this);
         }
         //throw new IllegalStateException("Cannot set configuration "+key+" on active location "+this)
     }
 
     public void setManagementContext(ManagementContextInternal managementContext) {
-        this.managementContext = managementContext;
-        if (displayNameAutoGenerated && id != null) name.set(getClass().getSimpleName()+":"+id.substring(0, Math.min(id.length(),4)));
+        super.setManagementContext(managementContext);
+        if (displayNameAutoGenerated && getId() != null) name.set(getClass().getSimpleName()+":"+getId().substring(0, Math.min(getId().length(),4)));
 
         Location oldParent = parent.get();
         Set<Location> oldChildren = children;
@@ -190,11 +173,11 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
         String oldDisplayName = name.get();
         HostGeoInfo oldHostGeoInfo = hostGeoInfo.get();
         
-        parent = managementContext.getStorage().getReference(id+"-parent");
-        children = SetFromLiveMap.create(managementContext.getStorage().<Location,Boolean>getMap(id+"-children"));
-        creationTimeUtc = managementContext.getStorage().getReference(id+"-creationTime");
-        hostGeoInfo = managementContext.getStorage().getReference(id+"-hostGeoInfo");
-        name = managementContext.getStorage().getReference(id+"-displayName");
+        parent = managementContext.getStorage().getReference(getId()+"-parent");
+        children = SetFromLiveMap.create(managementContext.getStorage().<Location,Boolean>getMap(getId()+"-children"));
+        creationTimeUtc = managementContext.getStorage().getReference(getId()+"-creationTime");
+        hostGeoInfo = managementContext.getStorage().getReference(getId()+"-hostGeoInfo");
+        name = managementContext.getStorage().getReference(getId()+"-displayName");
         
         // Only override stored defaults if we have actual values. We might be in setManagementContext
         // because we are reconstituting an existing entity in a new brooklyn management-node (in which
@@ -212,33 +195,20 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
             displayNameAutoGenerated = false;
         }
         
-        configBag = ConfigBag.newLiveInstance(managementContext.getStorage().<String,Object>getMap(id+"-config"));
+        configBag = ConfigBag.newLiveInstance(managementContext.getStorage().<String,Object>getMap(getId()+"-config"));
         if (oldConfig.size() > 0) {
             configBag.putAll(oldConfig);
         }
     }
 
-    @Override
-    public ManagementContext getManagementContext() {
-        return managementContext;
-    }
-    
     /**
-     * Will set fields from flags. The unused configuration can be found via the 
-     * {@linkplain ConfigBag#getUnusedConfig()}.
-     * This can be overridden for custom initialization but note the following. 
-     * <p>
-     * For new-style locations (i.e. not calling constructor directly, this will
-     * be invoked automatically by brooklyn-core post-construction).
-     * <p>
-     * For legacy location use, this will be invoked by the constructor in this class.
-     * Therefore if over-riding you must *not* rely on field initializers because they 
-     * may not run until *after* this method (this method is invoked by the constructor 
-     * in this class, so initializers in subclasses will not have run when this overridden 
-     * method is invoked.) If you require fields to be initialized you must do that in 
-     * this method with a guard (as in FixedListMachineProvisioningLocation).
-     */ 
-    public void configure(Map properties) {
+     * @deprecated since 0.7.0; only used for legacy brooklyn types where constructor is called directly;
+     * see overridden method for more info
+     */
+    @SuppressWarnings("serial")
+    @Override
+    @Deprecated
+    public AbstractLocation configure(Map<?,?> properties) {
         assertNotYetManaged();
         
         boolean firstTime = !configured.getAndSet(true);
@@ -264,7 +234,7 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
             name.set((String) removeIfPossible(properties, "name"));
             displayNameAutoGenerated = false;
         } else if (isLegacyConstruction()) {
-            name.set(getClass().getSimpleName()+":"+id.substring(0, Math.min(id.length(),4)));
+            name.set(getClass().getSimpleName()+":"+getId().substring(0, Math.min(getId().length(),4)));
             displayNameAutoGenerated = true;
         }
 
@@ -276,15 +246,17 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
             if (rawCodes instanceof CharSequence) {
                 codes = ImmutableSet.copyOf(Splitter.on(",").trimResults().split((CharSequence)rawCodes));
             } else {
-                codes = TypeCoercions.coerce(rawCodes, Set.class);
+                codes = TypeCoercions.coerce(rawCodes, new TypeToken<Set<String>>() {});
             }
             configBag.put(LocationConfigKeys.ISO_3166, codes);
         }
+        
+        return this;
     }
 
     // TODO ensure no callers rely on 'remove' semantics, and don't remove;
     // or perhaps better use a config bag so we know what is used v unused
-    private static Object removeIfPossible(Map map, Object key) {
+    private static Object removeIfPossible(Map<?,?> map, Object key) {
         try {
             return map.remove(key);
         } catch (Exception e) {
@@ -292,66 +264,26 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
         }
     }
     
-    /**
-     * Called by framework (in new-style locations) after configuring, setting parent, etc,
-     * but before a reference to this location is shared with other locations.
-     * 
-     * To preserve backwards compatibility for if the location is constructed directly, one
-     * can call the code below, but that means it will be called after references to this 
-     * location have been shared with other entities.
-     * <pre>
-     * {@code
-     * if (isLegacyConstruction()) {
-     *     init();
-     * }
-     * }
-     * </pre>
-     */
-    public void init() {
-        // no-op
-    }
-
-    /**
-     * Called by framework (in new-style locations) on rebind, after configuring, setting parent, etc.
-     * Note that a future change to Brooklyn is that {@link #init()} will not be called when rebinding.
-     */
-    public void rebind() {
-        // no-op
-    }
-
-    protected boolean isRebinding() {
-        return RebindManagerImpl.RebindTracker.isRebinding();
-    }
-    
     public boolean isManaged() {
-        return managementContext != null && managed;
+        return getManagementContext() != null && managed;
     }
 
     public void onManagementStarted() {
-        if (displayNameAutoGenerated) name.set(getClass().getSimpleName()+":"+id.substring(0, Math.min(id.length(),4)));
+        if (displayNameAutoGenerated) name.set(getClass().getSimpleName()+":"+getId().substring(0, Math.min(getId().length(),4)));
         this.managed = true;
     }
     
     public void onManagementStopped() {
         this.managed = false;
-        if (managementContext.isRunning()) {
-            BrooklynStorage storage = ((ManagementContextInternal)managementContext).getStorage();
-            storage.remove(id+"-parent");
-            storage.remove(id+"-children");
-            storage.remove(id+"-creationTime");
-            storage.remove(id+"-hostGeoInfo");
-            storage.remove(id+"-displayName");
-            storage.remove(id+"-config");
+        if (getManagementContext().isRunning()) {
+            BrooklynStorage storage = ((ManagementContextInternal)getManagementContext()).getStorage();
+            storage.remove(getId()+"-parent");
+            storage.remove(getId()+"-children");
+            storage.remove(getId()+"-creationTime");
+            storage.remove(getId()+"-hostGeoInfo");
+            storage.remove(getId()+"-displayName");
+            storage.remove(getId()+"-config");
         }
-    }
-    
-    protected boolean isLegacyConstruction() {
-        return _legacyConstruction;
-    }
-    
-    @Override
-    public String getId() {
-        return id;
     }
     
     @Override
@@ -394,6 +326,8 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
             parent.set(newParent);
             ((AbstractLocation)parent.get()).addChild(this); // FIXME Nasty cast
         }
+        
+        onChanged();
     }
 
     @Override
@@ -408,7 +342,8 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
         
         // In case this entity class has overridden the given key (e.g. to set default), then retrieve this entity's key
         // TODO when locations become entities, the duplication of this compared to EntityConfigMap.getConfig will disappear.
-        ConfigKey<T> ownKey = (ConfigKey<T>) elvis(entityType.getConfigKey(key.getName()), key);
+        @SuppressWarnings("unchecked")
+        ConfigKey<T> ownKey = (ConfigKey<T>) elvis(locationType.getConfigKey(key.getName()), key);
 
         return ownKey.getDefaultValue();
     }
@@ -451,18 +386,24 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
     
     @Override
     public <T> T setConfig(ConfigKey<T> key, T value) {
-        return configBag.put(key, value);
+        T result = configBag.put(key, value);
+        onChanged();
+        return result;
     }
 
-    /** @since 0.6.0 (?) - use getDisplayName */
+    /**
+     * @since 0.6.0 (?) - use getDisplayName
+     * @deprecated since 0.7.0; use {@link #getDisplayName()}
+     */
+    @Deprecated
     public void setName(String newName) {
         setDisplayName(newName);
-        displayNameAutoGenerated = false;
     }
 
     public void setDisplayName(String newName) {
         name.set(newName);
         displayNameAutoGenerated = false;
+        onChanged();
     }
 
     @Override
@@ -491,11 +432,12 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
     }
 
     protected <T extends Location> T addChild(LocationSpec<T> spec) {
-        T child = managementContext.getLocationManager().createLocation(spec);
+        T child = getManagementContext().getLocationManager().createLocation(spec);
         addChild(child);
         return child;
     }
     
+    @SuppressWarnings("deprecation")
     public void addChild(Location child) {
     	// Previously, setParent delegated to addChildLocation and we sometimes ended up with
     	// duplicate entries here. Instead this now uses a similar scheme to 
@@ -517,18 +459,22 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
         }
         
         if (isManaged()) {
-            Locations.manage(child, managementContext);
-        } else if (managementContext != null) {
-            if (((LocalLocationManager)managementContext.getLocationManager()).getLocationEvenIfPreManaged(child.getId()) == null) {
-                ((ManagementContextInternal)managementContext).prePreManage(child);
+            if (!getManagementContext().getLocationManager().isManaged(child)) {
+                Locations.manage(child, getManagementContext());
+            }
+        } else if (getManagementContext() != null) {
+            if (((LocalLocationManager)getManagementContext().getLocationManager()).getLocationEvenIfPreManaged(child.getId()) == null) {
+                ((ManagementContextInternal)getManagementContext()).prePreManage(child);
             }
         }
 
         children.add(child);
         child.setParent(this);
+        
+        onChanged();
     }
     
-    protected boolean removeChild(Location child) {
+    public boolean removeChild(Location child) {
         boolean removed;
         synchronized (children) {
             removed = children.remove(child);
@@ -540,10 +486,18 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
             child.setParent(null);
             
             if (isManaged()) {
-                managementContext.getLocationManager().unmanage(child);
+                getManagementContext().getLocationManager().unmanage(child);
             }
         }
+        onChanged();
         return removed;
+    }
+
+    protected void onChanged() {
+        // currently changes simply trigger re-persistence; there is no intermediate listener as we do for EntityChangeListener
+        if (isManaged()) {
+            getManagementContext().getRebindManager().getChangeListener().onChanged(this);
+        }
     }
 
     /** Default String representation is simplified name of class, together with selected fields. */
@@ -559,7 +513,7 @@ public abstract class AbstractLocation implements LocationInternal, HasHostGeoIn
 
     /** override this, adding to the returned value, to supply additional fields to include in the toString */
     protected ToStringHelper string() {
-        return Objects.toStringHelper(getClass()).add("id", id).add("name", name);
+        return Objects.toStringHelper(getClass()).add("id", getId()).add("name", name);
     }
     
     @Override

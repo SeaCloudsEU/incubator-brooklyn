@@ -109,18 +109,17 @@
         <plantuml.version>6121</plantuml.version>
         <ant.version>1.8.4</ant.version>
 
-        <jclouds.groupId>io.cloudsoft.jclouds</jclouds.groupId>
-        <jclouds.version>1.7.4-ea-brooklyn.1</jclouds.version>
-        <guava.version>15.0</guava.version>
+        <jclouds.groupId>org.apache.jclouds</jclouds.groupId>
+        <jclouds.version>1.8.0</jclouds.version>
+        <guava.version>17.0</guava.version>
         <groovy.version>1.8.6</groovy.version>
         <logback.version>1.0.7</logback.version>
         <testng.version>6.8</testng.version>
         <mockito.version>1.9.5</mockito.version>
-        <whirr.version>0.8.1</whirr.version>
         <slf4j.version>1.6.6</slf4j.version>  <!-- used for java.util.logging jul-to-slf4j interception -->
         <xstream.version>1.4.7</xstream.version>
         <jackson.version>1.9.13</jackson.version>  <!-- codehaus jackson, used by brooklyn rest server -->
-        <fasterxml.jackson.version>2.2.0</fasterxml.jackson.version>  <!-- fasterxml (newer) jackson, used by camp -->
+        <fasterxml.jackson.version>2.4.2</fasterxml.jackson.version>
         <jersey.version>1.12</jersey.version> <!-- NB: 1.17 requires changes to how we hanlde multipart in CatalogApi -->
         <swagger.version>1.0.1</swagger.version>
         <dropwizard.version>0.4.4</dropwizard.version>
@@ -138,7 +137,6 @@
         <mockwebserver.version>20121111</mockwebserver.version>
         <httpclient.version>4.2.5</httpclient.version>
         <freemarker.version>2.3.19</freemarker.version>
-        <osgi-core.version>4.3.0</osgi-core.version>
         <commons-io.version>2.4</commons-io.version>
         <hazelcast.version>3.0</hazelcast.version>
         <jsonPath.version>0.9.1</jsonPath.version>
@@ -166,7 +164,7 @@
         <solr.version>4.7.0</solr.version>
         <jtidy.version>r8-20060801</jtidy.version>
         <opendmk_jmxremote_optional_jar.version>1.0-b01-ea</opendmk_jmxremote_optional_jar.version>
-        <resteasy.version>3.0.1.Final</resteasy.version>
+        <resteasy.version>3.0.8.Final</resteasy.version>
         <maven-dependency-plugin.version>2.8</maven-dependency-plugin.version>
         <jopt.version>4.3</jopt.version>
         <concurrentlinkedhashmap.version>1.0_jdk5</concurrentlinkedhashmap.version>
@@ -177,6 +175,18 @@
         <requirejs-maven-plugin.version>2.0.0</requirejs-maven-plugin.version>
         <maven-antrun-plugin.version>1.7</maven-antrun-plugin.version>
         <eclipse-m2e.version>1.0.0</eclipse-m2e.version>
+        <jetty-orbit-javax-servlet.version>3.0.0.v201112011016</jetty-orbit-javax-servlet.version>
+        <jcommander.version>1.27</jcommander.version>
+        <xml-apis.version>1.0.b2</xml-apis.version>
+        <jsr250-api.version>1.0</jsr250-api.version>
+        <guice.version>3.0</guice.version>
+        <javax-inject.version>1</javax-inject.version>
+        <aopalliance.version>1.0</aopalliance.version>
+        <commons-configuration.version>1.7</commons-configuration.version>
+        <commons-lang.version>2.4</commons-lang.version>
+        <hamcrest.version>1.1</hamcrest.version>
+        <jsr311-api.version>1.1.1</jsr311-api.version>
+        <maxmind.version>0.8.1</maxmind.version>
 
         <includedTestGroups />
         <excludedTestGroups>Integration,Acceptance,Live,WIP</excludedTestGroups>
@@ -188,43 +198,6 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- include version numbers for common dependencies (including common brooklyn deps) -->
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>brooklyn-utils-common</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>brooklyn-api</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>brooklyn-test-support</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>brooklyn-core</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>brooklyn-policy</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>brooklyn-logback-includes</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>brooklyn-logback-xml</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-
             <dependency>
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-classic</artifactId>
@@ -291,6 +264,337 @@
                 <groupId>net.sourceforge.plantuml</groupId>
                 <artifactId>plantuml</artifactId>
                 <version>${plantuml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-server</artifactId>
+                <version>${jersey.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.sun.jersey.contribs</groupId>
+                <artifactId>jersey-multipart</artifactId>
+                <version>${jersey.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>${commons-lang3.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-server</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-servlet</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-util</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-core-asl</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-mapper-asl</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-jaxrs</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-xc</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${fasterxml.jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.jaxrs</groupId>
+                <artifactId>jackson-jaxrs-json-provider</artifactId>
+                <version>${fasterxml.jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.wordnik</groupId>
+                <artifactId>swagger-core_2.9.1</artifactId>
+                <version>${swagger.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-log4j12</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.wordnik</groupId>
+                <artifactId>swagger-jaxrs_2.9.1</artifactId>
+                <version>${swagger.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty.orbit</groupId>
+                <artifactId>javax.servlet</artifactId>
+                <version>${jetty-orbit-javax-servlet.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-security</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-core</artifactId>
+                <version>${jersey.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.beust</groupId>
+                <artifactId>jcommander</artifactId>
+                <version>${jcommander.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpcore</artifactId>
+                <version>${httpclient.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>xml-apis</groupId>
+                <artifactId>xml-apis</artifactId>
+                <version>${xml-apis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>javax.annotation</groupId>
+                <artifactId>jsr250-api</artifactId>
+                <version>${jsr250-api.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.inject</groupId>
+                <artifactId>guice</artifactId>
+                <version>${guice.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>javax.inject</groupId>
+                <artifactId>javax.inject</artifactId>
+                <version>${javax-inject.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>${commons-io.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpclient</artifactId>
+                <version>${httpclient.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>aopalliance</groupId>
+                <artifactId>aopalliance</artifactId>
+                <version>${aopalliance.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-ext-jdk15on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcpkix-jdk15on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.code.gson</groupId>
+                <artifactId>gson</artifactId>
+                <version>${gson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>commons-configuration</groupId>
+                <artifactId>commons-configuration</artifactId>
+                <version>${commons-configuration.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>commons-lang</groupId>
+                <artifactId>commons-lang</artifactId>
+                <version>${commons-lang.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.hamcrest</groupId>
+                <artifactId>hamcrest-all</artifactId>
+                <version>${hamcrest.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.yaml</groupId>
+                <artifactId>snakeyaml</artifactId>
+                <version>${snakeyaml.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.reflections</groupId>
+                <artifactId>reflections</artifactId>
+                <version>${reflections.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-client</artifactId>
+                <version>${jersey.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-webapp</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>org.apache.felix.framework</artifactId>
+                <version>${felix.framework.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-servlet</artifactId>
+                <version>${jersey.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>javax.ws.rs</groupId>
+                <artifactId>jsr311-api</artifactId>
+                <version>${jsr311-api.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.glassfish.external</groupId>
+                <artifactId>opendmk_jmxremote_optional_jar</artifactId>
+                <version>${opendmk_jmxremote_optional_jar.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>jul-to-slf4j</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-json</artifactId>
+                <version>${jersey.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.yammer.dropwizard</groupId>
+                <artifactId>dropwizard-testing</artifactId>
+                <version>${dropwizard.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jboss.resteasy</groupId>
+                <artifactId>resteasy-jaxrs</artifactId>
+                <version>${resteasy.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jboss.resteasy</groupId>
+                <artifactId>resteasy-jackson-provider</artifactId>
+                <version>${resteasy.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jboss.resteasy</groupId>
+                <artifactId>jaxrs-api</artifactId>
+                <version>${resteasy.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>javax.validation</groupId>
+                <artifactId>validation-api</artifactId>
+                <version>${validation-api.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.sf.jopt-simple</groupId>
+                <artifactId>jopt-simple</artifactId>
+                <version>${jopt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.googlecode.concurrentlinkedhashmap</groupId>
+                <artifactId>concurrentlinkedhashmap-lru</artifactId>
+                <version>${concurrentlinkedhashmap.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>airline</artifactId>
+                <version>${airline.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.whirr</groupId>
+                <artifactId>whirr-hadoop</artifactId>
+                <version>${whirr.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.whirr</groupId>
+                <artifactId>whirr-core</artifactId>
+                <version>${whirr.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.whirr</groupId>
+                <artifactId>whirr-cli</artifactId>
+                <version>${whirr.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.whirr</groupId>
+                <artifactId>whirr-elasticsearch</artifactId>
+                <version>${whirr.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-compress</artifactId>
+                <version>${commons-compress.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>net.schmizz</groupId>
+                <artifactId>sshj</artifactId>
+                <version>${sshj.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.freemarker</groupId>
+                <artifactId>freemarker</artifactId>
+                <version>${freemarker.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>mx4j</groupId>
+                <artifactId>mx4j-tools</artifactId>
+                <version>${mx4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.mockwebserver</groupId>
+                <artifactId>mockwebserver</artifactId>
+                <version>${mockwebserver.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-core</artifactId>
+                <version>${logback.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-all</artifactId>
+                <version>${mockito.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>${mockito.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.jayway.jsonpath</groupId>
+                <artifactId>json-path</artifactId>
+                <version>${jsonPath.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.maxmind.geoip2</groupId>
+                <artifactId>geoip2</artifactId>
+                <version>${maxmind.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -514,6 +818,14 @@
                     <version>1.4.0</version>
                 </plugin>
                 <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>buildnumber-maven-plugin</artifactId>
+                    <version>1.3</version>
+                    <configuration>
+                        <getRevisionOnlyOnce>true</getRevisionOnlyOnce>
+                    </configuration>
+                </plugin>
+                <plugin>
                     <!-- This configuration is used for Eclipse settings only. -->
                     <groupId>org.eclipse.m2e</groupId>
                     <artifactId>lifecycle-mapping</artifactId>
@@ -605,9 +917,22 @@
                          </lifecycleMappingMetadata>
                     </configuration>
                 </plugin>
+
             </plugins>
         </pluginManagement>
         <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>buildnumber-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>create</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <artifactId>maven-enforcer-plugin</artifactId>
                 <executions>
@@ -719,6 +1044,7 @@
                   <!-- see https://issues.apache.org/jira/browse/RAT-107 -->
                   <exclude>**/.git/**</exclude>
                   <exclude>**/.gitignore</exclude>
+                  <exclude>**/.repository/**</exclude>
                   <exclude>**/.idea/**</exclude>
                   <exclude>**/*.iml</exclude>
                   <exclude>**/.classpath/**</exclude>
@@ -726,6 +1052,7 @@
                   <exclude>**/.settings/**</exclude>
                   <exclude>**/*.log</exclude>
                   <exclude>**/brooklyn*.log.*</exclude>
+                  <exclude>**/target/**</exclude>
                   <!-- files not requiring licence -->
                   <exclude>ignored/**</exclude>
                   <exclude>LICENSE.md</exclude>
@@ -745,8 +1072,6 @@
                   <exclude>**/src/main/resources/banner.txt</exclude>
                   <exclude>**/src/test/resources/ssl/certs/localhost/info.txt</exclude>
                   <exclude>**/sandbox/examples/src/main/scripts/amis.txt</exclude>
-                  <exclude>**/sandbox/*/target/classes/**</exclude>
-                  <exclude>**/sandbox/*/target/test-classes/**</exclude>
                   <!-- see notes in https://issues.apache.org/jira/browse/BROOKLYN-18 -->
                   <!-- FIXME: Check licences for docs -->
                   <exclude>docs/**</exclude>
@@ -805,8 +1130,6 @@
                 <module>software/nosql</module>
                 <module>software/database</module>
                 <module>software/monitoring</module>
-                <module>systems/whirr/base</module>
-                <module>systems/whirr/hadoop</module>
             </modules>
         </profile>
         <profile>
@@ -826,6 +1149,7 @@
                 <module>usage/all</module>
                 <module>usage/dist</module>
                 <module>usage/archetypes/quickstart</module>
+                <module>usage/downstream-parent</module>
             </modules>
         </profile>
         <profile>
@@ -935,6 +1259,17 @@
                             </supportedProjectTypes>
                             <instructions>
                                 <!-- OSGi specific instruction -->
+                                <!--
+                                    By default packages containing impl and internal
+                                    are not included in the export list. Setting an
+                                    explicit wildcard will include all packages
+                                    regardless of name.
+                                    In time we should minimize our export lists to
+                                    what is really needed.
+                                -->
+                                <Export-Package>brooklyn.*</Export-Package>
+                                <Implementation-SHA-1>${buildNumber}</Implementation-SHA-1>
+                                <Implementation-Branch>${scmBranch}</Implementation-Branch>
                             </instructions>
                         </configuration>
                     </plugin>

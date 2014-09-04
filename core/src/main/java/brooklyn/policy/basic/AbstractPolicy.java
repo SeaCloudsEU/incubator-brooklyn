@@ -44,19 +44,17 @@ public abstract class AbstractPolicy extends AbstractEntityAdjunct implements Po
     protected String policyStatus;
     protected AtomicBoolean suspended = new AtomicBoolean(false);
 
-    /**
-     * The config values of this entity. Updating this map should be done
-     * via getConfig/setConfig.
-     */
-    private final PolicyType policyType;
+    private final PolicyDynamicType policyType;
     
     public AbstractPolicy() {
         this(Collections.emptyMap());
     }
     
-    public AbstractPolicy(Map flags) {
+    public AbstractPolicy(Map<?,?> flags) {
         super(flags);
-        policyType = new PolicyTypeImpl(getAdjunctType());
+        
+        // TODO Don't let `this` reference escape during construction
+        policyType = new PolicyDynamicType(this);
         
         if (isLegacyConstruction() && !isLegacyNoConstructionInit()) {
             init();
@@ -65,7 +63,7 @@ public abstract class AbstractPolicy extends AbstractEntityAdjunct implements Po
 
     @Override
     public PolicyType getPolicyType() {
-        return policyType;
+        return policyType.getSnapshot();
     }
 
     @Override
@@ -80,6 +78,10 @@ public abstract class AbstractPolicy extends AbstractEntityAdjunct implements Po
 
     @Override
     public boolean isSuspended() {
+        if (suspended==null) {
+            // only if accessed during construction in super, e.g. by a call to toString in configure
+            return true;
+        }
         return suspended.get();
     }
 
@@ -96,7 +98,7 @@ public abstract class AbstractPolicy extends AbstractEntityAdjunct implements Po
 
     @Override
     protected void onChanged() {
-        // TODO Could add PolicyChangeListener, similar to EntityChangeListener; should we do that?
+        // currently changes simply trigger re-persistence; there is no intermediate listener as we do for EntityChangeListener
         if (getManagementContext() != null) {
             getManagementContext().getRebindManager().getChangeListener().onChanged(this);
         }

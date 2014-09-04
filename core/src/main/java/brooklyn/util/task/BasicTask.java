@@ -20,7 +20,6 @@ package brooklyn.util.task;
 
 import static brooklyn.util.JavaGroovyEquivalents.asString;
 import static brooklyn.util.JavaGroovyEquivalents.elvisString;
-import static brooklyn.util.JavaGroovyEquivalents.join;
 import groovy.lang.Closure;
 
 import java.io.PrintWriter;
@@ -58,6 +57,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Objects;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ExecutionList;
 import com.google.common.util.concurrent.ListenableFuture;
 
@@ -82,7 +82,7 @@ public class BasicTask<T> implements TaskInternal<T> {
     public final String displayName;
     public final String description;
 
-    protected final Set<Object> tags = new LinkedHashSet<Object>();
+    protected final Set<Object> tags = Sets.newConcurrentHashSet();
     // for debugging, to record where tasks were created
 //    { tags.add(new Throwable("Creation stack trace")); }
 
@@ -117,8 +117,7 @@ public class BasicTask<T> implements TaskInternal<T> {
 
         description = elvisString(flags.remove("description"), "");
         String d = asString(flags.remove("displayName"));
-        if (d==null) d = join(tags, "-");
-        displayName = d;
+        displayName = (d==null ? "" : d);
     }
 
     public BasicTask(Runnable job) { this(GroovyJavaMethods.<T>callableFromRunnable(job)); }
@@ -144,10 +143,13 @@ public class BasicTask<T> implements TaskInternal<T> {
     }
 
     @Override
-    public String toString() { 
-        return "Task["+(displayName!=null && displayName.length()>0?displayName+
-                (tags!=null && !tags.isEmpty()?"":";")+" ":"")+
-                (tags!=null && !tags.isEmpty()?tags+"; ":"")+getId()+"]";
+    public String toString() {
+        // give display name plus id, or job and tags plus id; some jobs have been extended to include nice tostrings 
+        return "Task["+
+            (Strings.isNonEmpty(displayName) ? 
+                displayName : 
+                (job + (tags!=null && !tags.isEmpty() ? ";"+tags : "")) ) +
+            ":"+getId()+"]";
     }
 
     @Override
@@ -231,13 +233,18 @@ public class BasicTask<T> implements TaskInternal<T> {
     // basic fields --------------------
 
     @Override
+    public boolean isQueued() {
+        return (queuedTimeUtc >= 0);
+    }
+
+    @Override
     public boolean isQueuedOrSubmitted() {
-        return (queuedTimeUtc >= 0) || isSubmitted();
+        return isQueued() || isSubmitted();
     }
 
     @Override
     public boolean isQueuedAndNotSubmitted() {
-        return (queuedTimeUtc >= 0) && (!isSubmitted());
+        return isQueued() && (!isSubmitted());
     }
 
     @Override
@@ -729,7 +736,7 @@ public class BasicTask<T> implements TaskInternal<T> {
         @Override
         public void onTaskFinalization(Task<?> t) {
             if (!Tasks.isAncestorCancelled(t) && !t.isSubmitted()) {
-                log.warn("Task "+t+" was never submitted; did the code forget to run it?");
+                log.warn(t+" was never submitted; did the code create it and forget to run it? ('cancel' the task to suppress this message)");
                 log.debug("Detail of unsubmitted task "+t+":\n"+t.getStatusDetail(true));
                 return;
             }

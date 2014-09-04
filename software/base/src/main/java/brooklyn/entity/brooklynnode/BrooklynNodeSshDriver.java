@@ -30,13 +30,13 @@ import java.util.Map;
 
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.brooklynnode.BrooklynNode.ExistingFileBehaviour;
-import brooklyn.entity.drivers.downloads.DownloadResolver;
 import brooklyn.entity.java.JavaSoftwareProcessSshDriver;
 import brooklyn.entity.software.SshEffectorTasks;
 import brooklyn.location.basic.SshMachineLocation;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.file.ArchiveBuilder;
 import brooklyn.util.file.ArchiveUtils;
+import brooklyn.util.internal.ssh.SshTool;
 import brooklyn.util.net.Networking;
 import brooklyn.util.net.Urls;
 import brooklyn.util.os.Os;
@@ -77,7 +77,15 @@ public class BrooklynNodeSshDriver extends JavaSoftwareProcessSshDriver implemen
     protected String getInstallLabelExtraSalt() {
         return Identifiers.makeIdFromHash(Objects.hashCode(entity.getConfig(BrooklynNode.DOWNLOAD_URL), entity.getConfig(BrooklynNode.DISTRO_UPLOAD_URL)));
     }
-    
+
+    @Override
+    public void preInstall() {
+        resolver = Entities.newDownloader(this);
+        String subpath = entity.getConfig(BrooklynNode.SUBPATH_IN_ARCHIVE);
+        if (Strings.isBlank(subpath)) subpath = format("brooklyn-%s", getVersion());
+        setExpandedInstallDir(Os.mergePaths(getInstallDir(), resolver.getUnpackedDirectoryName(subpath)));
+    }
+
     @Override
     public void install() {
         String uploadUrl = entity.getConfig(BrooklynNode.DISTRO_UPLOAD_URL);
@@ -86,13 +94,8 @@ public class BrooklynNodeSshDriver extends JavaSoftwareProcessSshDriver implemen
         // This filename is used to generate the first URL to try: 
         // file://$HOME/.brooklyn/repository/BrooklynNode/0.6.0-SNAPSHOT/brooklyn-0.6.0-SNAPSHOT-dist.tar.gz
         // (DOWNLOAD_URL overrides this and has a default which comes from maven)
-        DownloadResolver resolver = Entities.newDownloader(this);
         List<String> urls = resolver.getTargets();
         String saveAs = resolver.getFilename();
-        
-        String subpath = entity.getConfig(BrooklynNode.SUBPATH_IN_ARCHIVE);
-        if (Strings.isBlank(subpath)) subpath = format("brooklyn-%s", getVersion());
-        setExpandedInstallDir(getInstallDir()+"/"+resolver.getUnpackedDirectoryName(subpath));
         
         newScript("createInstallDir")
                 .body.append("mkdir -p "+getInstallDir())
@@ -202,7 +205,7 @@ public class BrooklynNodeSshDriver extends JavaSoftwareProcessSshDriver implemen
         for (String entry : getEntity().getClasspath()) {
             // If a local folder, then create archive from contents first
             if (Urls.isDirectory(entry)) {
-                File jarFile = ArchiveBuilder.jar().add(entry).create();
+                File jarFile = ArchiveBuilder.jar().addDirContentsAt(new File(entry), "").create();
                 entry = jarFile.getAbsolutePath();
             }
 
@@ -322,14 +325,14 @@ public class BrooklynNodeSshDriver extends JavaSoftwareProcessSshDriver implemen
         SshMachineLocation machine = getMachine();
         String tempRemotePath = String.format("%s/upload.tmp", getRunDir());
 
-        if (contents != null) {
-            machine.copyTo(new ByteArrayInputStream(contents.getBytes()), tempRemotePath);
-        } else if (alternativeUri != null) {
-            InputStream propertiesStream = resource.getResourceFromUrl(alternativeUri);
-            machine.copyTo(propertiesStream, tempRemotePath);
-        } else {
-            throw new IllegalStateException("No contents supplied for file "+remotePath);
+        if (contents == null && alternativeUri == null) {
+            throw new IllegalStateException("No contents supplied for file " + remotePath);
         }
+        InputStream stream = contents != null
+                ? new ByteArrayInputStream(contents.getBytes())
+                : resource.getResourceFromUrl(alternativeUri);
+        Map<String, String> flags = MutableMap.of(SshTool.PROP_PERMISSIONS.getName(), "0600");
+        machine.copyTo(flags, stream, tempRemotePath);
         newScript(CUSTOMIZING)
                 .failOnNonZeroResultCode()
                 .body.append(

@@ -42,7 +42,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.BrooklynProperties;
-import brooklyn.config.BrooklynProperties.Factory.Builder;
 import brooklyn.config.BrooklynServerConfig;
 import brooklyn.config.BrooklynServiceAttributes;
 import brooklyn.config.ConfigKey;
@@ -74,13 +73,17 @@ import brooklyn.management.ha.ManagementPlaneSyncRecordPersister;
 import brooklyn.management.ha.ManagementPlaneSyncRecordPersisterToObjectStore;
 import brooklyn.management.internal.LocalManagementContext;
 import brooklyn.management.internal.ManagementContextInternal;
+import brooklyn.mementos.BrooklynMemento;
 import brooklyn.rest.BrooklynWebConfig;
 import brooklyn.rest.security.BrooklynPropertiesSecurityFilter;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.exceptions.FatalConfigurationRuntimeException;
 import brooklyn.util.exceptions.FatalRuntimeException;
 import brooklyn.util.exceptions.RuntimeInterruptedException;
+import brooklyn.util.guava.Maybe;
+import brooklyn.util.io.FileUtil;
 import brooklyn.util.net.Networking;
+import brooklyn.util.os.Os;
 import brooklyn.util.stream.Streams;
 import brooklyn.util.text.Strings;
 import brooklyn.util.time.Duration;
@@ -150,7 +153,7 @@ public class BrooklynLauncher {
     private CampPlatform campPlatform;
 
     private boolean started;
-    private String globalBrooklynPropertiesFile;
+    private String globalBrooklynPropertiesFile = Os.mergePaths(Os.home(), ".brooklyn", "brooklyn.properties");
     private String localBrooklynPropertiesFile;
 
     public List<Application> getApplications() {
@@ -428,6 +431,51 @@ public class BrooklynLauncher {
         return this;
     }
     
+    public BrooklynMemento retrieveState() {
+        initManagementContext();
+
+        try {
+            initPersistence();
+        } catch (Exception e) {
+            handleSubsystemStartupError(ignorePersistenceErrors, "persistence", e);
+        }
+
+        ClassLoader classLoader = managementContext.getCatalog().getRootClassLoader();
+        try {
+            return managementContext.getRebindManager().retrieveMemento(classLoader);
+            
+        } catch (Exception e) {
+            Exceptions.propagateIfFatal(e);
+            LOG.debug("Error rebinding to persisted state (rethrowing): "+e, e);
+            throw new FatalRuntimeException("Error rebinding to persisted state: "+
+                Exceptions.collapseText(e), e);
+        }
+    }
+
+    public void persistState(BrooklynMemento memento, File destinationDir) {
+        initManagementContext();
+        
+        try {
+            FileBasedObjectStore objectStore = new FileBasedObjectStore(destinationDir);
+            objectStore.injectManagementContext(managementContext);
+            objectStore.prepareForSharedUse(persistMode, highAvailabilityMode);
+
+            BrooklynMementoPersisterToObjectStore persister = new BrooklynMementoPersisterToObjectStore(
+                    objectStore,
+                    ((ManagementContextInternal)managementContext).getBrooklynProperties(),
+                    managementContext.getCatalog().getRootClassLoader());
+
+            PersistenceExceptionHandler exceptionHandler = PersistenceExceptionHandlerImpl.builder().build();
+            persister.checkpoint(memento, exceptionHandler);
+            
+        } catch (Exception e) {
+            Exceptions.propagateIfFatal(e);
+            LOG.debug("Error rebinding to persisted state (rethrowing): "+e, e);
+            throw new FatalRuntimeException("Error rebinding to persisted state: "+
+                Exceptions.collapseText(e), e);
+        }
+    }
+
     /**
      * Starts the web server (with web console) and Brooklyn applications, as per the specifications configured. 
      * @return An object containing details of the web server and the management context.
@@ -437,24 +485,7 @@ public class BrooklynLauncher {
         started = true;
         
         // Create the management context
-        if (managementContext == null) {
-            if (brooklynProperties == null) {
-                Builder builder = new BrooklynProperties.Factory.Builder();
-                if (globalBrooklynPropertiesFile != null) builder.globalPropertiesFile(globalBrooklynPropertiesFile);
-                if (localBrooklynPropertiesFile != null) builder.localPropertiesFile(localBrooklynPropertiesFile);
-                managementContext = new LocalManagementContext(builder, brooklynAdditionalProperties);
-            } else {
-                managementContext = new LocalManagementContext(brooklynProperties, brooklynAdditionalProperties);
-            }
-            brooklynProperties = ((ManagementContextInternal)managementContext).getBrooklynProperties();
-            
-            // We created the management context, so we are responsible for terminating it
-            BrooklynShutdownHooks.invokeTerminateOnShutdown(managementContext);
-            
-        } else if (brooklynProperties == null) {
-            brooklynProperties = ((ManagementContextInternal)managementContext).getBrooklynProperties();
-            brooklynProperties.addFromMap(brooklynAdditionalProperties);
-        }
+        initManagementContext();
 
         // Create the locations
         locations.addAll(managementContext.getLocationRegistry().resolve(locationSpecs));
@@ -468,23 +499,92 @@ public class BrooklynLauncher {
         
         try {
             initPersistence();
-        } catch (Exception e) { handleSubsystemStartupError(ignorePersistenceErrors, "persistence", e); }
+            startPersistence();
+        } catch (Exception e) {
+            handleSubsystemStartupError(ignorePersistenceErrors, "persistence", e);
+        }
         
         // Start the web-console
         if (startWebApps) {
             try {
                 startWebApps();
-            } catch (Exception e) { handleSubsystemStartupError(ignoreWebErrors, "web apps", e); }
+            } catch (Exception e) {
+                handleSubsystemStartupError(ignoreWebErrors, "web apps", e);
+            }
         }
         
         try {
             createApps();
             startApps();
-        } catch (Exception e) { handleSubsystemStartupError(ignoreAppErrors, "managed apps", e); }
+        } catch (Exception e) {
+            handleSubsystemStartupError(ignoreAppErrors, "managed apps", e);
+        }
         
         return this;
     }
 
+    private void initManagementContext() {
+        // Create the management context
+        if (managementContext == null) {
+            if (brooklynProperties == null) {
+                BrooklynProperties.Factory.Builder builder = BrooklynProperties.Factory.builderDefault();
+                if (globalBrooklynPropertiesFile != null && fileExists(globalBrooklynPropertiesFile)) {
+                    // brooklyn.properties stores passwords (web-console and cloud credentials), 
+                    // so ensure it has sensible permissions
+                    checkFileReadable(globalBrooklynPropertiesFile);
+                    checkFilePermissionsX00(globalBrooklynPropertiesFile);
+                    builder.globalPropertiesFile(globalBrooklynPropertiesFile);
+                }
+                if (localBrooklynPropertiesFile != null) {
+                    checkFileReadable(localBrooklynPropertiesFile);
+                    checkFilePermissionsX00(localBrooklynPropertiesFile);
+                    builder.localPropertiesFile(localBrooklynPropertiesFile);
+                }
+                managementContext = new LocalManagementContext(builder, brooklynAdditionalProperties);
+            } else {
+                managementContext = new LocalManagementContext(brooklynProperties, brooklynAdditionalProperties);
+            }
+            brooklynProperties = ((ManagementContextInternal)managementContext).getBrooklynProperties();
+            
+            // We created the management context, so we are responsible for terminating it
+            BrooklynShutdownHooks.invokeTerminateOnShutdown(managementContext);
+            
+        } else if (brooklynProperties == null) {
+            brooklynProperties = ((ManagementContextInternal)managementContext).getBrooklynProperties();
+            brooklynProperties.addFromMap(brooklynAdditionalProperties);
+        }
+    }
+
+    private boolean fileExists(String file) {
+        return new File(Os.tidyPath(file)).exists();
+    }
+
+    private void checkFileReadable(String file) {
+        File f = new File(Os.tidyPath(file));
+        if (!f.exists()) {
+            throw new FatalRuntimeException("File "+file+" does not exist");
+        }
+        if (!f.isFile()) {
+            throw new FatalRuntimeException(file+" is not a file");
+        }
+        if (!f.canRead()) {
+            throw new FatalRuntimeException(file+" is not readable");
+        }
+    }
+    
+    private void checkFilePermissionsX00(String file) {
+        File f = new File(Os.tidyPath(file));
+        
+        Maybe<String> permission = FileUtil.getFilePermissions(f);
+        if (permission.isAbsent()) {
+            LOG.debug("Could not determine permissions of file; assuming ok: "+f);
+        } else {
+            if (!permission.get().substring(4).equals("------")) {
+                throw new FatalRuntimeException("Invalid permissions for file "+file+"; expected ?00 but was "+permission.get());
+            }
+        }
+    }
+    
     private void handleSubsystemStartupError(boolean ignoreSuchErrors, String system, Exception e) {
         Exceptions.propagateIfFatal(e);
         if (ignoreSuchErrors) {
@@ -541,7 +641,9 @@ public class BrooklynLauncher {
             persistenceDir = BrooklynServerConfig.resolvePersistencePath(persistenceDir, brooklynProperties, persistenceLocation);
 
             if (Strings.isBlank(persistenceLocation)) {
-                objectStore = new FileBasedObjectStore(new File(persistenceDir));
+                File persistenceDirF = new File(persistenceDir);
+                if (persistenceDirF.isFile()) throw new FatalConfigurationRuntimeException("Persistence directory must not be a file");
+                objectStore = new FileBasedObjectStore(persistenceDirF);
             } else {
                 objectStore = new JcloudsBlobStoreBasedObjectStore(persistenceLocation, persistenceDir);
             }
@@ -583,14 +685,18 @@ public class BrooklynLauncher {
             ((HighAvailabilityManagerImpl)haManager).setPollPeriod(haHeartbeatPeriod);
             haManager.setPersister(persister);
         }
-        
+    }
+    
+    protected void startPersistence() {
         // Now start the HA Manager and the Rebind manager, as required
         if (highAvailabilityMode == HighAvailabilityMode.DISABLED) {
             HighAvailabilityManager haManager = managementContext.getHighAvailabilityManager();
             haManager.disabled();
 
-            if (objectStore!=null)
-                startPersistenceWithoutHA(objectStore);
+            if (persistMode != PersistMode.DISABLED) {
+                startPersistenceWithoutHA();
+            }
+            
         } else {
             // Let the HA manager decide when objectstore.prepare and rebindmgr.rebind need to be called 
             // (based on whether other nodes in plane are already running).
@@ -615,7 +721,7 @@ public class BrooklynLauncher {
         }
     }
 
-    private void startPersistenceWithoutHA(PersistenceObjectStore objectStore) {
+    private void startPersistenceWithoutHA() {
         RebindManager rebindManager = managementContext.getRebindManager();
         if (Strings.isNonBlank(persistenceLocation))
             LOG.info("Management node (no HA) rebinding to entities at "+persistenceLocation+" in "+persistenceDir);
@@ -699,6 +805,10 @@ public class BrooklynLauncher {
             Throwable t = Exceptions.create(appExceptions);
             throw new FatalRuntimeException("Error starting applications: "+Exceptions.collapseText(t), t);
         }
+    }
+    
+    public boolean isStarted() {
+        return started;
     }
     
     /**

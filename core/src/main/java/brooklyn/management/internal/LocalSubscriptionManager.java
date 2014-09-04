@@ -180,8 +180,16 @@ public class LocalSubscriptionManager extends AbstractSubscriptionManager {
                     continue;
                 final Subscription sAtClosureCreation = s;
                 em.submit(mapOf("tag", s.subscriberExecutionManagerTag), new Runnable() {
+                    @Override
+                    public String toString() {
+                        return "LSM.publish("+event+")";
+                    }
                     public void run() {
-                        sAtClosureCreation.listener.onEvent(event);
+                        try {
+                            sAtClosureCreation.listener.onEvent(event);
+                        } catch (Throwable t) {
+                            LOG.warn("Error in "+this+": "+t, t);
+                        }
                     }});
                 totalEventsDeliveredCount.incrementAndGet();
             }

@@ -18,9 +18,15 @@
  */
 package brooklyn.util.javalang;
 
+import java.io.IOException;
 import java.net.URL;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+
+import com.google.common.collect.Sets;
 
 /** looks for classes and resources in the classloaders added here
  * <p>
@@ -30,7 +36,11 @@ public class AggregateClassLoader extends ClassLoader {
 
     private final List<ClassLoader> classLoaders = new CopyOnWriteArrayList<ClassLoader>();
 
-    private AggregateClassLoader() {}
+    private AggregateClassLoader() {
+        //Don't pass load requests to the app classloader,
+        //always relay to the classLoaders list.
+        super(null);
+    }
     
     /** creates default instance, with classloaders of Object and AggregateClassLoader */
     public static AggregateClassLoader newInstanceWithDefaultLoaders() {
@@ -85,7 +95,7 @@ public class AggregateClassLoader extends ClassLoader {
     public String toString() {
         return "AggregateClassLoader"+classLoaders;
     }
-    
+
     @Override
     public URL getResource(String name) {
         URL result = null;
@@ -100,6 +110,15 @@ public class AggregateClassLoader extends ClassLoader {
         return null;
     }
 
-    // TODO lesser used items, such as getResources, getPackage, findLibrary
+    @Override
+    public Enumeration<URL> getResources(String name) throws IOException {
+        Set<URL> resources = Sets.newLinkedHashSet();
+        for (ClassLoader classLoader : classLoaders) {
+            resources.addAll(Collections.list(classLoader.getResources(name)));
+        }
+        return Collections.enumeration(resources);
+    }
+
+    // TODO lesser used items, such as getPackage, findLibrary
 
 }
