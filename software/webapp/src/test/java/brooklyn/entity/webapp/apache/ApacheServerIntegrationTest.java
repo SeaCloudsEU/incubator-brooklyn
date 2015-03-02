@@ -120,10 +120,8 @@ public class ApacheServerIntegrationTest {
 
         Asserts.succeedsEventually(new Runnable() {
             public void run() {
-                assertNotNull(server.getAttribute(ApacheServer.TOTAL_ACCESSES));
                 assertNotNull(server.getAttribute(ApacheServer.TOTAL_KBYTE));
                 assertNotNull(server.getAttribute(ApacheServer.CPU_LOAD));
-                assertNotNull(server.getAttribute(ApacheServer.UP_TIME));
                 assertNotNull(server.getAttribute(ApacheServer.REQUEST_PER_SEC));
                 assertNotNull(server.getAttribute(ApacheServer.BYTES_PER_SEC));
                 assertNotNull(server.getAttribute(ApacheServer.BYTES_PER_REQ));
@@ -149,10 +147,8 @@ public class ApacheServerIntegrationTest {
 
         Asserts.succeedsEventually(new Runnable() {
             public void run() {
-                assertNotNull(server.getAttribute(ApacheServer.TOTAL_ACCESSES));
                 assertNotNull(server.getAttribute(ApacheServer.TOTAL_KBYTE));
                 assertNotNull(server.getAttribute(ApacheServer.CPU_LOAD));
-                assertNotNull(server.getAttribute(ApacheServer.UP_TIME));
                 assertNotNull(server.getAttribute(ApacheServer.REQUEST_PER_SEC));
                 assertNotNull(server.getAttribute(ApacheServer.BYTES_PER_SEC));
                 assertNotNull(server.getAttribute(ApacheServer.BYTES_PER_REQ));

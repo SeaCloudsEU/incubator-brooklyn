@@ -1259,6 +1259,7 @@
             <activation> <property><name> !brooklyn.explicitModules </name></property> </activation>
             <modules>
                 <module>locations/jclouds</module>
+                <module>locations/paas</module>
             </modules>
         </profile>
         <profile>
@@ -1275,6 +1276,7 @@
                 <module>software/nosql</module>
                 <module>software/database</module>
                 <module>software/monitoring</module>
+                <module>software/paas</module>
             </modules>
         </profile>
         <profile>
