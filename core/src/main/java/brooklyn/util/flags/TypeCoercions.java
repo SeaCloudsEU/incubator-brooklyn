@@ -24,14 +24,14 @@ import groovy.time.TimeDuration;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.URL;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -51,6 +51,8 @@ import brooklyn.entity.basic.EntityFactory;
 import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.BasicAttributeSensor;
 import brooklyn.util.JavaGroovyEquivalents;
+import brooklyn.util.collections.QuorumCheck;
+import brooklyn.util.collections.QuorumCheck.QuorumChecks;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.guava.Maybe;
 import brooklyn.util.javalang.Enums;
@@ -64,11 +66,15 @@ import brooklyn.util.yaml.Yamls;
 
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Function;
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.net.HostAndPort;
 import com.google.common.primitives.Primitives;
@@ -116,8 +122,39 @@ public class TypeCoercions {
     @SuppressWarnings({ "unchecked" })
     public static <T> T coerce(Object value, TypeToken<T> targetTypeToken) {
         if (value==null) return null;
-        // does not actually cast generified contents; that is left to the caller
         Class<? super T> targetType = targetTypeToken.getRawType();
+
+        //recursive coercion of parameterized collections and map entries
+        if (targetTypeToken.getType() instanceof ParameterizedType) {
+            if (value instanceof Collection && Collection.class.isAssignableFrom(targetType)) {
+                Type[] arguments = ((ParameterizedType) targetTypeToken.getType()).getActualTypeArguments();
+                if (arguments.length != 1) {
+                    throw new IllegalStateException("Unexpected number of parameters in collection type: " + arguments);
+                }
+                Collection coerced = Lists.newLinkedList();
+                TypeToken<?> listEntryType = TypeToken.of(arguments[0]);
+                for (Object entry : (Iterable<?>) value) {
+                    coerced.add(coerce(entry, listEntryType));
+                }
+                if (Set.class.isAssignableFrom(targetType)) {
+                    return (T) Sets.newLinkedHashSet(coerced);
+                } else {
+                    return (T) Lists.newArrayList(coerced);
+                }
+            } else if (value instanceof Map && Map.class.isAssignableFrom(targetType)) {
+                Type[] arguments = ((ParameterizedType) targetTypeToken.getType()).getActualTypeArguments();
+                if (arguments.length != 2) {
+                    throw new IllegalStateException("Unexpected number of parameters in map type: " + arguments);
+                }
+                Map coerced = Maps.newLinkedHashMap();
+                TypeToken<?> mapKeyType = TypeToken.of(arguments[0]);
+                TypeToken<?> mapValueType = TypeToken.of(arguments[1]);
+                for (Map.Entry entry : ((Map<?,?>) value).entrySet()) {
+                    coerced.put(coerce(entry.getKey(), mapKeyType),  coerce(entry.getValue(), mapValueType));
+                }
+                return (T) Maps.newLinkedHashMap(coerced);
+            }
+        }
 
         if (targetType.isInstance(value)) return (T) value;
 
@@ -201,7 +238,18 @@ public class TypeCoercions {
             Map<Class, Function> adapters = registry.row(targetType);
             for (Map.Entry<Class, Function> entry : adapters.entrySet()) {
                 if (entry.getKey().isInstance(value)) {
-                    return (T) entry.getValue().apply(value);
+                    T result = (T) entry.getValue().apply(value);
+                    
+                    // Check if need to unwrap again (e.g. if want List<Integer> and are given a String "1,2,3"
+                    // then we'll have so far converted to List.of("1", "2", "3"). Call recursively.
+                    // First check that value has changed, to avoid stack overflow!
+                    if (!Objects.equal(value, result) && targetTypeToken.getType() instanceof ParameterizedType) {
+                        // Could duplicate check for `result instanceof Collection` etc; but recursive call
+                        // will be fine as if that doesn't match we'll safely reach `targetType.isInstance(value)`
+                        // and just return the result.
+                        return coerce(result, targetTypeToken);
+                    }
+                    return result;
                 }
             }
         }
@@ -425,7 +473,7 @@ public class TypeCoercions {
         return null;
     }
 
-    public synchronized static <A,B> void registerAdapter(Class<A> sourceType, Class<B> targetType, Function<A,B> fn) {
+    public synchronized static <A,B> void registerAdapter(Class<A> sourceType, Class<B> targetType, Function<? super A,B> fn) {
         registry.put(targetType, sourceType, fn);
     }
 
@@ -446,14 +494,14 @@ public class TypeCoercions {
             @SuppressWarnings("unchecked")
             @Override
             public Set apply(Collection input) {
-                return new LinkedHashSet(input);
+                return Sets.newLinkedHashSet(input);
             }
         });
         registerAdapter(Collection.class, List.class, new Function<Collection,List>() {
             @SuppressWarnings("unchecked")
             @Override
             public List apply(Collection input) {
-                return new ArrayList(input);
+                return Lists.newArrayList(input);
             }
         });
         registerAdapter(String.class, InetAddress.class, new Function<String,InetAddress>() {
@@ -648,6 +696,12 @@ public class TypeCoercions {
             @Override
             public List<String> apply(final String input) {
                 return JavaStringEscapes.unwrapJsonishListIfPossible(input);
+            }
+        });
+        registerAdapter(String.class, QuorumCheck.class, new Function<String,QuorumCheck>() {
+            @Override
+            public QuorumCheck apply(final String input) {
+                return QuorumChecks.of(input);
             }
         });
         registerAdapter(String.class, Map.class, new Function<String,Map>() {

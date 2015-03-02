@@ -32,6 +32,7 @@ import brooklyn.util.collections.MutableMap;
 import brooklyn.util.flags.SetFromFlag;
 import brooklyn.util.time.Duration;
 
+import com.google.common.annotations.Beta;
 import com.google.common.reflect.TypeToken;
 
 public interface SoftwareProcess extends Entity, Startable {
@@ -50,17 +51,23 @@ public interface SoftwareProcess extends Entity, Startable {
     @SetFromFlag("setupLatch")
     ConfigKey<Boolean> SETUP_LATCH = BrooklynConfigKeys.SETUP_LATCH;
 
+    @SetFromFlag("installResourcesLatch")
+    ConfigKey<Boolean> INSTALL_RESOURCES_LATCH = BrooklynConfigKeys.INSTALL_RESOURCES_LATCH;
+
     @SetFromFlag("installLatch")
     ConfigKey<Boolean> INSTALL_LATCH = BrooklynConfigKeys.INSTALL_LATCH;
+
+    @SetFromFlag("runtimeResourcesLatch")
+    ConfigKey<Boolean> RUNTIME_RESOURCES_LATCH = BrooklynConfigKeys.RUNTIME_RESOURCES_LATCH;
 
     @SetFromFlag("customizeLatch")
     ConfigKey<Boolean> CUSTOMIZE_LATCH = BrooklynConfigKeys.CUSTOMIZE_LATCH;
 
-    @SetFromFlag("resourcesLatch")
-    ConfigKey<Boolean> RESOURCES_LATCH = BrooklynConfigKeys.RESOURCES_LATCH;
-
     @SetFromFlag("launchLatch")
     ConfigKey<Boolean> LAUNCH_LATCH = BrooklynConfigKeys.LAUNCH_LATCH;
+
+    @SetFromFlag("entityStarted")
+    ConfigKey<Boolean> ENTITY_STARTED = BrooklynConfigKeys.ENTITY_STARTED;
 
     @SetFromFlag("skipInstall")
     ConfigKey<Boolean> SKIP_INSTALLATION = BrooklynConfigKeys.SKIP_INSTALLATION;
@@ -102,15 +109,55 @@ public interface SoftwareProcess extends Entity, Startable {
     @Deprecated
     ConfigKey<String> SUGGESTED_RUN_DIR = BrooklynConfigKeys.SUGGESTED_RUN_DIR;
 
-    /** Files to be copied to the server, map of "subpath/file.name": "classpath://foo/file.txt" (or other url) */
+    /**
+     * Files to be copied to the server before install.
+     * <p>
+     * Map of {@code classpath://foo/file.txt} (or other url) source to destination path,
+     * as {@code subdir/file} relative to installation directory or {@code /absolute/path/to/file}.
+     *
+     * @see #INSTALL_TEMPLATES
+     */
+    @Beta
+    @SuppressWarnings("serial")
+    @SetFromFlag("installFiles")
+    ConfigKey<Map<String, String>> INSTALL_FILES = ConfigKeys.newConfigKey(new TypeToken<Map<String, String>>() { },
+            "files.install", "Mapping of files, to be copied before install, to destination name relative to installDir");
+
+    /**
+     * Templates to be filled in and then copied to the server before install.
+     *
+     * @see #INSTALL_FILES
+     */
+    @Beta
+    @SuppressWarnings("serial")
+    @SetFromFlag("installTemplates")
+    ConfigKey<Map<String, String>> INSTALL_TEMPLATES = ConfigKeys.newConfigKey(new TypeToken<Map<String, String>>() { },
+            "templates.install", "Mapping of templates, to be filled in and copied before install, to destination name relative to installDir");
+
+    /**
+     * Files to be copied to the server after customisation.
+     * <p>
+     * Map of {@code classpath://foo/file.txt} (or other url) source to destination path,
+     * as {@code subdir/file} relative to runtime directory or {@code /absolute/path/to/file}.
+     *
+     * @see #RUNTIME_TEMPLATES
+     */
+    @Beta
+    @SuppressWarnings("serial")
     @SetFromFlag("runtimeFiles")
     ConfigKey<Map<String, String>> RUNTIME_FILES = ConfigKeys.newConfigKey(new TypeToken<Map<String, String>>() { },
-            "files.runtime", "Map of files to be copied, keyed by destination name relative to runDir");
+            "files.runtime", "Mapping of files, to be copied before customisation, to destination name relative to runDir");
 
-    /** Templates to be filled in and then copied to the server. See {@link #RUNTIME_FILES}. */
+    /**
+     * Templates to be filled in and then copied to the server after customisation.
+     *
+     * @see #RUNTIME_FILES
+     */
+    @Beta
+    @SuppressWarnings("serial")
     @SetFromFlag("runtimeTemplates")
     ConfigKey<Map<String, String>> RUNTIME_TEMPLATES = ConfigKeys.newConfigKey(new TypeToken<Map<String, String>>() { },
-            "templates.runtime", "Map of templates to be filled in and copied, keyed by destination name relative to runDir");
+            "templates.runtime", "Mapping of templates, to be filled in and copied before customisation, to destination name relative to runDir");
 
     @SetFromFlag("env")
     MapConfigKey<Object> SHELL_ENVIRONMENT = new MapConfigKey<Object>(Object.class,
@@ -185,5 +232,28 @@ public interface SoftwareProcess extends Entity, Startable {
     AttributeSensor<Lifecycle> SERVICE_STATE_ACTUAL = Attributes.SERVICE_STATE_ACTUAL;
  
     AttributeSensor<String> PID_FILE = Sensors.newStringSensor("softwareprocess.pid.file", "PID file");
+
+    public static class RestartSoftwareParameters {
+        @Beta /** @since 0.7.0 semantics of parameters to restart being explored */
+        public static final ConfigKey<Boolean> RESTART_CHILDREN = ConfigKeys.newConfigKey(Boolean.class, "restartChildren",
+            "Whether to restart children; default false", false);
+
+        @Beta /** @since 0.7.0 semantics of parameters to restart being explored */
+        public static final ConfigKey<Object> RESTART_MACHINE = ConfigKeys.newConfigKey(Object.class, "restartMachine",
+            "Whether to restart/replace the machine provisioned for this entity:  'true', 'false', or 'auto' are supported, "
+            + "with the default being 'auto' which means to restart or reprovision the machine if there is no simpler way known to restart the entity "
+            + "(for example, if the machine is unhealthy, it would not be possible to restart the process, not even via a stop-then-start sequence); "
+            + "if the machine was not provisioned for this entity, this parameter has no effect", 
+            RestartMachineMode.AUTO.toString().toLowerCase());
+        
+        // we supply a typed variant for retrieval; we want the untyped (above) to use lower case as the default in the GUI
+        // (very hard if using enum, since enum takes the name, and RendererHints do not apply to parameters) 
+        @Beta /** @since 0.7.0 semantics of parameters to restart being explored */
+        public static final ConfigKey<RestartMachineMode> RESTART_MACHINE_TYPED = ConfigKeys.newConfigKey(RestartMachineMode.class, "restartMachine");
+            
+        public enum RestartMachineMode { TRUE, FALSE, AUTO }
+    }
+    
+    // NB: the START, STOP, and RESTART effectors themselves are (re)defined by MachineLifecycleEffectorTasks
 
 }

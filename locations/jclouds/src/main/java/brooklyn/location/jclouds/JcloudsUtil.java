@@ -72,7 +72,6 @@ import org.slf4j.LoggerFactory;
 
 import brooklyn.entity.basic.Entities;
 import brooklyn.location.jclouds.config.AlwaysRetryOnRenew;
-import brooklyn.location.jclouds.config.BrooklynStandardJcloudsGuiceModule;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.config.ConfigBag;
@@ -278,7 +277,7 @@ public class JcloudsUtil implements JcloudsLocationConfig {
         if (allowReuse) {
             ComputeService result = cachedComputeServices.get(cacheKey);
             if (result!=null) {
-                LOG.debug("jclouds ComputeService cache hit for compute service, for "+Entities.sanitize(properties));
+                LOG.trace("jclouds ComputeService cache hit for compute service, for "+Entities.sanitize(properties));
                 return result;
             }
             LOG.debug("jclouds ComputeService cache miss for compute service, creating, for "+Entities.sanitize(properties));
@@ -318,8 +317,7 @@ public class JcloudsUtil implements JcloudsLocationConfig {
         return ImmutableSet.<Module> of(
                 new SshjSshClientModule(), 
                 new SLF4JLoggingModule(),
-                new BouncyCastleCryptoModule(),
-                new BrooklynStandardJcloudsGuiceModule());
+                new BouncyCastleCryptoModule());
     }
      
     /** 

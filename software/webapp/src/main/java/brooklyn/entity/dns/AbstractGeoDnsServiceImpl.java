@@ -22,6 +22,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.net.InetAddress;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.util.Collection;
@@ -48,6 +49,7 @@ import brooklyn.entity.webapp.WebAppService;
 import brooklyn.location.geo.HostGeoInfo;
 import brooklyn.policy.PolicySpec;
 import brooklyn.util.collections.MutableSet;
+import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.flags.SetFromFlag;
 import brooklyn.util.net.Networking;
 import brooklyn.util.time.Duration;
@@ -131,7 +133,7 @@ public abstract class AbstractGeoDnsServiceImpl extends AbstractEntity implement
         log.debug("Initializing tracker for "+this+", following "+targetEntityProvider);
         tracker = addPolicy(PolicySpec.create(MemberTrackingPolicy.class)
                 .displayName("GeoDNS targets tracker")
-                .configure("sensorsToTrack", ImmutableSet.of(HOSTNAME, ADDRESS, WebAppService.ROOT_URL))
+                .configure("sensorsToTrack", ImmutableSet.of(HOSTNAME, ADDRESS, Attributes.MAIN_URI, WebAppService.ROOT_URL))
                 .configure("group", targetEntityProvider));
         refreshGroupMembership();
     }
@@ -302,10 +304,10 @@ public abstract class AbstractGeoDnsServiceImpl extends AbstractEntity implement
     
     protected String inferHostname(Entity entity) {
         String hostname = entity.getAttribute(Attributes.HOSTNAME);
-        String url = entity.getAttribute(WebAppService.ROOT_URL);
+        URI url = entity.getAttribute(Attributes.MAIN_URI);
         if (url!=null) {
             try {
-                URL u = new URL(url);
+                URL u = url.toURL();
                 
                 String hostname2 = u.getHost(); 
                 if (hostname==null) {
@@ -334,17 +336,21 @@ public abstract class AbstractGeoDnsServiceImpl extends AbstractEntity implement
     }
     
     protected HostGeoInfo inferHostGeoInfo(String hostname, String ip) throws UnknownHostException {
-        // Look up the geo-info from the hostname/ip
-        HostGeoInfo geoH;
-        try {
-            InetAddress addr = (hostname == null) ? null : InetAddress.getByName(hostname);
-            geoH = (addr == null) ? null : HostGeoInfo.fromIpAddress(addr);
-        } catch (UnknownHostException e) {
-            if (ip == null) {
-                throw e;
-            } else {
-                if (log.isTraceEnabled()) log.trace("GeoDns failed to infer GeoInfo from hostname {}; will try with IP {} ({})", new Object[] {hostname, ip, e});
-                geoH = null;
+        HostGeoInfo geoH = null;
+        if (hostname != null) {
+            try {
+                // For some entities, the hostname can actually be an IP! Therefore use Networking.getInetAddressWithFixedName
+                InetAddress addr = Networking.getInetAddressWithFixedName(hostname);
+                geoH = HostGeoInfo.fromIpAddress(addr);
+            } catch (RuntimeException e) {
+                // Most likely caused by (a wrapped) UnknownHostException
+                Exceptions.propagateIfFatal(e);
+                if (ip == null) {
+                    if (log.isTraceEnabled()) log.trace("inferHostGeoInfo failing ("+Exceptions.getFirstInteresting(e)+"): hostname="+hostname+"; ip="+ip);
+                    throw e;
+                } else {
+                    if (log.isTraceEnabled()) log.trace("GeoDns failed to infer GeoInfo from hostname {}; will try with IP {} ({})", new Object[] {hostname, ip, e});
+                }
             }
         }
 

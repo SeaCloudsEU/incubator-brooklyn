@@ -154,6 +154,13 @@ public class MutableList<V> extends ArrayList<V> {
             return this;
         }
 
+        public Builder<V> addAll(V[] vals) {
+            for (V v : vals) {
+                result.add(v);
+            }
+            return this;
+        }
+
         public Builder<V> removeAll(Iterable<? extends V> iterable) {
             if (iterable instanceof Collection) {
                 result.removeAll((Collection<? extends V>) iterable);
@@ -171,6 +178,13 @@ public class MutableList<V> extends ArrayList<V> {
         
         public ImmutableList<V> buildImmutable() {
             return ImmutableList.copyOf(result);
+        }
+
+        public Builder<V> addLists(Iterable<? extends V> ...items) {
+            for (Iterable<? extends V> item: items) {
+                addAll(item);
+            }
+            return this;
         }
     }
     

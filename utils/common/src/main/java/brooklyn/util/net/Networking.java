@@ -21,6 +21,7 @@ package brooklyn.util.net;
 import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -31,14 +32,18 @@ import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.text.Identifiers;
+import brooklyn.util.time.Time;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Stopwatch;
 import com.google.common.base.Throwables;
 import com.google.common.net.HostAndPort;
 import com.google.common.primitives.UnsignedBytes;
@@ -64,56 +69,81 @@ public class Networking {
     public static InetAddress ANY_NIC = getInetAddressWithFixedName(0, 0, 0, 0);
     public static InetAddress LOOPBACK = getInetAddressWithFixedName(127, 0, 0, 1);
         
-    private static boolean loggedLocalhostNotAvailable = false;
     public static boolean isPortAvailable(int port) {
-        try {
-            return isPortAvailable(InetAddress.getByName("localhost"), port);
-        } catch (UnknownHostException e) {
-            if (!loggedLocalhostNotAvailable) {
-                loggedLocalhostNotAvailable = true;
-                log.warn("localhost unavailable during port availability check for "+port+": "+e+"; ignoring, but this may be a sign of network misconfiguration");
-            }
-            return isPortAvailable(null, port);
-        }
+        return isPortAvailable(ANY_NIC, port);
     }
     public static boolean isPortAvailable(InetAddress localAddress, int port) {
         if (port < MIN_PORT_NUMBER || port > MAX_PORT_NUMBER) {
             throw new IllegalArgumentException("Invalid start port: " + port);
         }
+        Stopwatch watch = Stopwatch.createStarted();
         try {
-            Socket s = new Socket(localAddress, port);
             try {
-                s.close();
-            } catch (Exception e) {}
-            return false;
-        } catch (Exception e) {
-            //expected - shouldn't be able to connect
-        }
-        //despite http://stackoverflow.com/questions/434718/sockets-discover-port-availability-using-java
-        //(recommending the following) it isn't 100% reliable (e.g. nginx will happily coexist with ss+ds)
-        //so we also do the above check
-        ServerSocket ss = null;
-        DatagramSocket ds = null;
-        try {
-            ss = new ServerSocket(port);
-            ss.setReuseAddress(true);
-            ds = new DatagramSocket(port);
-            ds.setReuseAddress(true);
-            return true;
-        } catch (IOException e) {
-            return false;
-        } finally {
-            if (ds != null) {
-                ds.close();
-            }
-
-            if (ss != null) {
+                Socket s = new Socket();
+                s.setSoTimeout(250);
+                s.connect(new InetSocketAddress(localAddress, port), 250);
                 try {
-                    ss.close();
-                } catch (IOException e) {
-                    /* should not be thrown */
+                    s.close();
+                } catch (Exception e) {}
+                return false;
+            } catch (Exception e) {
+                //expected - shouldn't be able to connect
+            }
+            //despite http://stackoverflow.com/questions/434718/sockets-discover-port-availability-using-java
+            //(recommending the following) it isn't 100% reliable (e.g. nginx will happily coexist with ss+ds)
+            //so we also do the above check
+            ServerSocket ss = null;
+            DatagramSocket ds = null;
+            try {
+                ss = new ServerSocket();
+                ss.setSoTimeout(250);
+                ss.bind(new InetSocketAddress(localAddress, port));
+                ss.setReuseAddress(true);
+                
+                ds = new DatagramSocket(port);
+                ds.setReuseAddress(true);
+                
+            } catch (IOException e) {
+                return false;
+            } finally {
+                if (ds != null) {
+                    ds.close();
+                }
+    
+                if (ss != null) {
+                    try {
+                        ss.close();
+                    } catch (IOException e) {
+                        /* should not be thrown */
+                    }
                 }
             }
+            
+            
+            if (localAddress==null || ANY_NIC.equals(localAddress)) {
+                // sometimes 0.0.0.0 can be bound to even if 127.0.0.1 has the port as in use; check 127.0.0.1 if 0.0.0.0 was requested
+                Enumeration<NetworkInterface> nis = null;
+                try {
+                    nis = NetworkInterface.getNetworkInterfaces();
+                } catch (SocketException e) {
+                    throw Exceptions.propagate(e);
+                }
+                while (nis.hasMoreElements()) {
+                    NetworkInterface ni = nis.nextElement();
+                    Enumeration<InetAddress> as = ni.getInetAddresses();
+                    while (as.hasMoreElements()) {
+                        InetAddress a = as.nextElement();
+                        if (!isPortAvailable(a, port))
+                            return false;
+                    }
+                }
+            }
+            
+            return true;
+        } finally {
+            // Until timeout was added, was taking 1min5secs for /fe80:0:0:0:1cc5:1ff:fe81:a61d%8 : 8081
+            if (log.isTraceEnabled()) log.trace("Took {} to determine if port {} : {} was available", 
+                    new Object[] {Time.makeTimeString(watch.elapsed(TimeUnit.MILLISECONDS), true), localAddress, port});
         }
     }
     /** returns the first port available on the local machine >= the port supplied */
@@ -132,16 +162,15 @@ public class Networking {
         return port;
     }
 
-    public static void checkPortsValid(@SuppressWarnings("rawtypes") Map ports) {
-        for (Object ppo : ports.entrySet()) {
-            Map.Entry<?,?> pp = (Map.Entry<?,?>)ppo;
-            Object val = pp.getValue();
-            if(val == null){
-                throw new IllegalArgumentException("port for "+pp.getKey()+" is null");
-            }else if (!(val instanceof Integer)) {
-                throw new IllegalArgumentException("port "+val+" for "+pp.getKey()+" is not an integer ("+val.getClass()+")");
+    public static void checkPortsValid(Map<?, ?> ports) {
+        for (Map.Entry<?,?> entry : ports.entrySet()) {
+            Object val = entry.getValue();
+            if (val == null){
+                throw new IllegalArgumentException("port for "+entry.getKey()+" is null");
+            } else if (!(val instanceof Integer)) {
+                throw new IllegalArgumentException("port "+val+" for "+entry.getKey()+" is not an integer ("+val.getClass()+")");
             }
-            checkPortValid((Integer)val, ""+pp.getKey());
+            checkPortValid((Integer)val, ""+entry.getKey());
         }
     }
 
@@ -369,6 +398,40 @@ public class Networking {
         return true;
     }
 
+    /** returns true if the supplied string matches any known IP (v4 or v6) for this machine,
+     * or if it can be resolved to any such address */
+    public static boolean isLocalhost(String remoteAddress) {
+        Map<String, InetAddress> addresses = getLocalAddresses();
+        if (addresses.containsKey(remoteAddress)) return true;
+        
+        if ("127.0.0.1".equals(remoteAddress)) return true;
+        
+        String modifiedIpV6Address = remoteAddress;
+        // IPv6 localhost "ip" strings may vary;
+        // comes back as 0:0:0:0:0:0:0:1%1 for me.
+        // following deals with the cases which seem likely.
+        // (svet suggests using InetAddress parsing but I -- Alex -- am not sure if that's going to have it's own bugs)
+        if (modifiedIpV6Address.contains("%")) {
+            // trim any description %dex
+            modifiedIpV6Address = modifiedIpV6Address.substring(0, modifiedIpV6Address.indexOf("%"));
+        }
+        if ("0:0:0:0:0:0:0:1".equals(modifiedIpV6Address)) return true;
+        if ("::1".equals(modifiedIpV6Address)) return true;
+        if (addresses.containsKey(remoteAddress) || addresses.containsKey(modifiedIpV6Address))
+            return true;
+        
+        try {
+            InetAddress remote = InetAddress.getByName(remoteAddress);
+            if (addresses.values().contains(remote))
+                return true;
+        } catch (Exception e) {
+            Exceptions.propagateIfFatal(e);
+            log.debug("Error resolving address "+remoteAddress+" when checking if it is local (assuming not: "+e, e);
+        }
+        
+        return false;
+    }
+    
     public static boolean isReachable(HostAndPort endpoint) {
         try {
             Socket s = new Socket(endpoint.getHostText(), endpoint.getPort());

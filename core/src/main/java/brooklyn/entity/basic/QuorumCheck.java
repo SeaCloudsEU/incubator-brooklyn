@@ -20,25 +20,52 @@ package brooklyn.entity.basic;
 
 import java.io.Serializable;
 
-public interface QuorumCheck {
+/**
+ * For checking if a group/cluster is quorate. That is, whether the group has sufficient
+ * healthy members.
+ * @deprecated since 0.7.0 use {@link brooklyn.util.collections.QuorumCheck}. 
+ * but keep this for a while as old quorum checks might be persisted. 
+ */
+@Deprecated
+public interface QuorumCheck extends brooklyn.util.collections.QuorumCheck {
 
+    /**
+     * @param sizeHealthy Number of healthy members
+     * @param totalSize   Total number of members one would expect to be healthy (i.e. ignoring stopped members)
+     * @return            Whether this group is healthy
+     */
     public boolean isQuorate(int sizeHealthy, int totalSize);
 
     public static class QuorumChecks {
+        /**
+         * Checks that all members that should be up are up (i.e. ignores stopped nodes).
+         */
         public static QuorumCheck all() {
             return new NumericQuorumCheck(0, 1.0, false);
         }
+        /**
+         * Checks all members that should be up are up, and that there is at least one such member.
+         */
         public static QuorumCheck allAndAtLeastOne() {
             return new NumericQuorumCheck(1, 1.0, false);
         }
+        /**
+         * Requires at least one member that should be up is up.
+         */
         public static QuorumCheck atLeastOne() {
             return new NumericQuorumCheck(1, 0.0, false);
         }
-        /** require at least one to be up if the total size is non-zero;
-         * ie okay if empty, or if non-empty and something is healthy, but not okay if not-empty and nothing is healthy */
+        /**
+         * Requires at least one member to be up if the total size is non-zero.
+         * i.e. okay if empty, or if non-empty and something is healthy, but not okay if not-empty and nothing is healthy.
+         * "Empty" means that no members are supposed to be up  (e.g. there may be stopped members).
+         */
         public static QuorumCheck atLeastOneUnlessEmpty() {
             return new NumericQuorumCheck(1, 0.0, true);
         }
+        /**
+         * Always "healthy"
+         */
         public static QuorumCheck alwaysTrue() {
             return new NumericQuorumCheck(0, 0.0, true);
         }
@@ -47,6 +74,10 @@ public interface QuorumCheck {
         }
     }
     
+    /** @deprecated since 0.7.0 use {@link brooklyn.util.collections.QuorumCheck}. 
+    * but keep this until we have a transition defined. 
+    */
+    @Deprecated
     public static class NumericQuorumCheck implements QuorumCheck, Serializable {
         private static final long serialVersionUID = -5090669237460159621L;
         

@@ -16,7 +16,7 @@ of your choice.
 Command Line Options
 --------------------
 
-To configure brooklyn, the relevant command line options are:
+To configure brooklyn, the relevant command line options for the `launch` commands are:
 
 * `--persist` <persistence mode>
   The persistence mode.
@@ -34,6 +34,12 @@ For the persistence mode, the possible values are:
 * `auto` means Brooklyn will rebind if there is any existing state, or will start afresh if 
   there is no state.
 
+The persistence directory and location can instead be specified from `brooklyn.properties` using
+the following config keys:
+
+* `brooklyn.persistence.dir`
+* `brooklyn.persistence.location.spec`
+
 
 <a name="file-based-persistence"></a>
 File-based Persistence
@@ -45,7 +51,6 @@ To persist to the file system, start brooklyn with:
 brooklyn launch --persist auto --persistenceDir /path/to/myPersistenceDir
 {% endhighlight %}
 
-an
 If there is already data at `/path/to/myPersistenceDir`, then a backup of the directory will 
 be made. This will have a name like `/path/to/myPersistenceDir.20140701-142101345.bak`.
 
@@ -104,6 +109,25 @@ Once all have been created, Brooklyn will "manage" the entities. This will bind 
 underlying entities under management to update the each entity's sensors (e.g. to poll over 
 HTTP or JMX). This new state will be reported in the web-console and can also trigger 
 any registered policies.
+
+
+<a name="copy-state"></a>
+Copying Persistence State
+-------------------------
+
+Brooklyn includes a command to copy persistence state easily between two locations.
+The `copy-state` CLI command takes the following arguments:
+
+* `--persistenceDir` <source persistence dir>
+  The directory to read persisted state (or container name if using an object store).
+* `--persistenceLocation` <source persistence location>
+  The location spec for an object store to read persisted state.
+* `--destinationDir` <target persistence dir>
+  The directory to copy persistence data to (or container name if using an object store).
+* `--destinationLocation` <target persistence location>
+  The location spec for an object store to copy data to.
+* `--transformations` <transformations>
+  The local transformations file to be applied to the copy of the data before uploading it.
 
 
 <a name="handling-rebind-failures"></a>
@@ -182,6 +206,52 @@ executed. This allows the state of entities to be modified (and thus fixed) at r
 If used, it is strongly recommended that Groovy scripts are run against a disconnected Brooklyn
 instance. After fixing the entities, locations and/or policies, the Brooklyn instance's 
 new persisted state can be copied and used to fix the production instance.
+
+
+<a name="high-availability"></a>
+High Availability
+-----------------
+
+Brooklyn will automatically run in HA mode if multiple Brooklyn instances are started
+pointing at the same persistence store.  One Brooklyn node (e.g. the first one started)
+is elected as HA master:  all *write operations* against Brooklyn entities, such as creating
+an application or invoking an effector, should be directed to the master.
+
+Once one node is running as `MASTER`, other nodes start in either `STANDBY` or `HOT_STANDBY` mode:
+
+* In `STANDBY` mode, a Brooklyn instance will monitor the master and will be a candidate
+  to become `MASTER` should the master fail. Standby nodes do *not* attempt to rebind
+  until they are elected master, so the state of existing entities is not available at
+  the standby node.  However a standby server consumes very little resource until it is
+  promoted.
+  
+* In `HOT_STANDBY` mode, a Brooklyn instance will read and make available the live state of
+  entities.  Thus a hot-standby node is available as a read-only copy.
+  As with the standby node, if a hot-standby node detects that the master fails,
+  it will be a candidate for promotion to master.
+
+To explicitly specify what HA mode a node should be in, the following CLI options are available
+for the parameter `--highAvailability`:
+
+* `disabled`: management node works in isolation; it will not cooperate with any other standby/master nodes in management plane
+* `auto`: will look for other management nodes, and will allocate itself as standby or master based on other nodes' states
+* `master`: will startup as master; if there is already a master then fails immediately
+* `standby`: will start up as lukewarm standby; if there is not already a master then fails immediately
+* `hot_standby`: will start up as hot standby; if there is not already a master then fails immediately
+
+The REST API offers live detection and control of the HA mode,
+including setting priority to control which nodes will be promoted on master failure:
+
+* `/server/ha/state`: Returns the HA state of a management node (GET),
+  or changes the state (POST)
+* `/server/ha/states`: Returns the HA states and detail for all nodes in a management plane
+* `/server/ha/priority`: Returns the HA node priority for MASTER failover (GET),
+  or sets that priority (POST)
+
+Note that when POSTing to a non-master server it is necessary to pass a `Brooklyn-Allow-Non-Master-Access: true` header.
+For example, the following cURL command could be used to change the state of a `STANDBY` node on `localhost:8082` to `HOT_STANDBY`:
+
+    curl -v -X POST -d mode=HOT_STANDBY -H "Brooklyn-Allow-Non-Master-Access: true" http://localhost:8082/v1/server/ha/state
 
 
 <a name="writing-persistable-code"></a>

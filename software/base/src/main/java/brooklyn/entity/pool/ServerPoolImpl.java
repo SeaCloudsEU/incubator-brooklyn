@@ -253,7 +253,7 @@ public class ServerPoolImpl extends DynamicClusterImpl implements ServerPool {
 
     @Override
     public Collection<Entity> addExistingMachinesFromSpec(String spec) {
-        Location location = getManagementContext().getLocationRegistry().resolveIfPossible(spec);
+        Location location = getManagementContext().getLocationRegistry().resolve(spec, true, null).orNull();
         List<Entity> additions = Lists.newLinkedList();
         if (location == null) {
             LOG.warn("Spec was unresolvable: {}", spec);
@@ -297,7 +297,7 @@ public class ServerPoolImpl extends DynamicClusterImpl implements ServerPool {
             }
 
             if (delta < removable) {
-                LOG.info("Too few removable machines in {} to shrink by delta {}. Altered delta to {}",
+                LOG.warn("Too few removable machines in {} to shrink by delta {}. Altered delta to {}",
                         new Object[]{this, delta, removable});
                 delta = removable;
             }

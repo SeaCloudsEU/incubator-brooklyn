@@ -21,10 +21,7 @@ package brooklyn.enricher;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import brooklyn.enricher.basic.AbstractEnricher;
 import brooklyn.enricher.basic.Aggregator;
@@ -135,12 +132,16 @@ public class Enrichers {
             return new PropagatorBuilder(true, vals);
         }
         
-        /** builds an enricher which transforms a given sensor:
-         * <li> applying a (required) function ({@link TransformerBuilder#computing(Function)}, or {@link TransformerBuilder#computingAverage()}/{@link TransformerBuilder#computingSum()}, mandatory);
+        /**
+         * Builds an enricher which transforms a given sensor:
+         * <li> applying a (required) function ({@link TransformerBuilder#computing(Function)}, or
+         *      {@link AbstractAggregatorBuilder#computingAverage()}/
+         *      {@link AbstractAggregatorBuilder#computingSum()}, mandatory);
          * <li> and publishing it on the entity where the enricher is attached;
          * <li> optionally taking the sensor from a different source entity ({@link TransformerBuilder#from(Entity)});
          * <li> and optionally publishing it as a different sensor ({@link TransformerBuilder#publishing(AttributeSensor)});
-         * <p> (You must supply at least one of the optional values, of course, otherwise the enricher may loop endlessly!) */
+         * <p> You must supply at least one of the optional values, of course, otherwise the enricher may loop endlessly!
+         */
         public <S> TransformerBuilder<S, Object> transforming(AttributeSensor<S> val) {
             return new TransformerBuilder<S, Object>(val);
         }
@@ -163,7 +164,6 @@ public class Enrichers {
             return new UpdatingMapBuilder<S, TKey, TVal>(target);
         }
     }
-
 
     protected abstract static class AbstractAggregatorBuilder<S, T, B extends AbstractAggregatorBuilder<S, T, B>> extends AbstractEnricherBuilder<B> {
         protected final AttributeSensor<S> aggregating;
@@ -338,6 +338,17 @@ public class Enrichers {
             this.computing((Function)function);
             return self();
         }
+
+        @SuppressWarnings({ "unchecked", "rawtypes" })
+        public B computingProductDeduce() {
+            Function<Collection<S>, Number> function = new Function<Collection<S>, Number>() {
+                @Override public Number apply(Collection<S> input) {
+                    return productDeduce((Collection) input, (Number) defaultValueForUnreportedSensors, (Number) valueToReportIfNoSensors, (TypeToken) publishing.getTypeToken());
+                }};
+            this.computing((Function)function);
+            return self();
+        }
+
         @SuppressWarnings({ "unchecked", "rawtypes" })
         public B computingAverage() {
             Function<Collection<S>, Number> function = new Function<Collection<S>, Number>() {
@@ -653,6 +664,60 @@ public class Enrichers {
         if (count==0) return cast(valueIfNone, type);
         return cast(result, type);
     }
+
+    protected static <N extends Number> N productDeduce(Collection<? extends Number> vals, Number valueIfNull,
+                                                        Number valueIfNone, TypeToken<N> type) {
+        Long result = 0L;
+        int count = 0;
+        Long total;
+        Long tailProduct = 1L;
+        if (vals != null) {
+            total = getHead(vals);
+            tailProduct=getTailProduct(vals);
+            result=total-tailProduct;
+            return cast(result, type);
+        }
+        else{
+            return cast(valueIfNone, type);
+        }
+    }
+
+    private static Long getHead(Collection<? extends Number> vals){
+        Long result= 0L;
+        if((vals!=null)&&(vals.size()>0)){
+            result=vals.iterator().next().longValue();
+        }
+        return  result;
+    }
+
+    private static Long getTailProduct(Collection<? extends Number> vals){
+        Long result=0L;
+        int counter=0;
+        Collection<? extends Number> tail=getTail(vals);
+        if((tail!=null)&&(tail.size()>=1)){
+            result=1L;
+            for(Number item: tail){
+                result=result*item.longValue();
+            }
+        }
+        return result;
+    }
+
+
+    private static Collection<? extends Number> getTail(Collection<? extends Number> vals){
+        ArrayList<Number> result=null;
+        if((vals!=null)&&(vals.size()>1)){
+            result=new ArrayList<Number>();
+            int i=0;
+            for(Number val: vals) {
+                if (i != 0) {
+                    result.add(val);
+                }
+                i++;
+            }
+        }
+        return result;
+}
     
     protected static int count(Iterable<? extends Object> vals, boolean includeNullValues) {
         int result = 0;

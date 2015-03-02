@@ -46,6 +46,7 @@ import brooklyn.util.jmx.jmxrmi.JmxRmiAgent;
 import brooklyn.util.maven.MavenArtifact;
 import brooklyn.util.maven.MavenRetriever;
 import brooklyn.util.net.Urls;
+import brooklyn.util.text.Strings;
 
 import com.google.common.base.Preconditions;
 import com.google.common.net.HostAndPort;
@@ -206,6 +207,15 @@ public class JmxSupport implements UsesJmx {
     }
 
     public String getJmxAgentJarDestinationFilePath() {
+        // cache the local path so we continue to work post-rebind to a different version
+        String result = getEntity().getAttribute(JMX_AGENT_LOCAL_PATH);
+        if (Strings.isNonBlank(result)) return result;
+        result = getJmxAgentJarDestinationFilePathDefault();
+        ((EntityInternal)getEntity()).setAttribute(JMX_AGENT_LOCAL_PATH, result);
+        return result;
+    }
+    
+    public String getJmxAgentJarDestinationFilePathDefault() {
         return Urls.mergePaths(getRunDir(), getJmxAgentJarBasename());
     }
 
@@ -269,7 +279,8 @@ public class JmxSupport implements UsesJmx {
 
         switch (getJmxAgentMode()) {
         case JMXMP_AND_RMI:
-            result.put(JmxmpAgent.RMI_REGISTRY_PORT_PROPERTY, Preconditions.checkNotNull(entity.getAttribute(UsesJmx.RMI_REGISTRY_PORT), "registry port"));
+            Integer rmiRegistryPort = Preconditions.checkNotNull(entity.getAttribute(UsesJmx.RMI_REGISTRY_PORT), "registry port (config val %s)", entity.getConfig(UsesJmx.RMI_REGISTRY_PORT));
+            result.put(JmxmpAgent.RMI_REGISTRY_PORT_PROPERTY, rmiRegistryPort);
         case JMXMP:
             if (jmxRemotePort==null || jmxRemotePort<=0)
                 throw new IllegalStateException("Unsupported JMX port "+jmxRemotePort+" - when applying system properties ("+getJmxAgentMode()+" / "+getEntity()+")");

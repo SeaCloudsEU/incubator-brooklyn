@@ -61,24 +61,11 @@ public interface EntityConfigApi {
       @ApiParam(value = "Application ID or name", required = true)
       @PathParam("application") String application,
       @ApiParam(value = "Entity ID or name", required = true)
-      @PathParam("entity") String entityToken) ;
-
-  @GET
-  @Path("/{config}")
-  @ApiOperation(value = "Fetch config value (text/plain)", responseClass = "Object")
-  @ApiErrors(value = {
-      @ApiError(code = 404, reason = "Could not find application, entity or config key")
-  })
-  @Produces(MediaType.TEXT_PLAIN)
-  public String getPlain(
-      @ApiParam(value = "Application ID or name", required = true)
-      @PathParam("application") String application,
-      @ApiParam(value = "Entity ID or name", required = true)
       @PathParam("entity") String entityToken,
-      @ApiParam(value = "Config key ID", required = true)
-      @PathParam("config") String configKeyName
-  );
-
+      @ApiParam(value = "Return raw config data instead of display values", required = false)
+      @QueryParam("raw") @DefaultValue("false") final Boolean raw
+      ) ;
+  
   @GET
   @Path("/{config}")
   @ApiOperation(value = "Fetch config value (json)", responseClass = "Object")
@@ -92,7 +79,49 @@ public interface EntityConfigApi {
       @ApiParam(value = "Entity ID or name", required = true)
       @PathParam("entity") String entityToken,
       @ApiParam(value = "Config key ID", required = true)
-      @PathParam("config") String configKeyName
+      @PathParam("config") String configKeyName,
+      @ApiParam(value = "Return raw config data instead of display values", required = false)
+      @QueryParam("raw") @DefaultValue("false") final Boolean raw
+      );
+
+  // if user requests plain value we skip some json post-processing
+  @GET
+  @Path("/{config}")
+  @ApiOperation(value = "Fetch config value (text/plain)", responseClass = "Object")
+  @ApiErrors(value = {
+      @ApiError(code = 404, reason = "Could not find application, entity or config key")
+  })
+  @Produces(MediaType.TEXT_PLAIN)
+  public String getPlain(
+      @ApiParam(value = "Application ID or name", required = true)
+      @PathParam("application") String application,
+      @ApiParam(value = "Entity ID or name", required = true)
+      @PathParam("entity") String entityToken,
+      @ApiParam(value = "Config key ID", required = true)
+      @PathParam("config") String configKeyName,
+      @ApiParam(value = "Return raw config data instead of display values", required = false)
+      @QueryParam("raw") @DefaultValue("false") final Boolean raw
   );
+
+  @POST
+  @Path("/{config}")
+  @ApiOperation(value = "Manually set a config value")
+  @ApiErrors(value = {
+      @ApiError(code = 404, reason = "Could not find application, entity or config key")
+  })
+  public void set(
+          @ApiParam(value = "Application ID or name", required = true)
+          @PathParam("application") final String application,
+          @ApiParam(value = "Entity ID or name", required = true)
+          @PathParam("entity") final String entityToken,
+          @ApiParam(value = "Config key name", required = true)
+          @PathParam("config") String configName,
+          @ApiParam(value = "Apply the config to all pre-existing descendants", required = false)
+          @QueryParam("raw") @DefaultValue("false") final Boolean recurse,
+          @ApiParam(value = "Value to set")
+          Object newValue
+  ) ;
+
+  // deletion of config is not supported; you can set it null
 
 }

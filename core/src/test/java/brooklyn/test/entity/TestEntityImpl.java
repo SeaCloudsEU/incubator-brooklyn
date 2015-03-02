@@ -45,10 +45,10 @@ import com.google.common.collect.Lists;
 public class TestEntityImpl extends AbstractEntity implements TestEntity {
     private static final Logger LOG = LoggerFactory.getLogger(TestEntityImpl.class);
 
-	protected int sequenceValue = 0;
-	protected AtomicInteger counter = new AtomicInteger(0);
-	protected Map<?,?> constructorProperties;
-	protected Map<?,?> configureProperties;
+    protected int sequenceValue = 0;
+    protected AtomicInteger counter = new AtomicInteger(0);
+    protected Map<?,?> constructorProperties;
+    protected Map<?,?> configureProperties;
     protected List<String> callHistory = Collections.synchronizedList(Lists.<String>newArrayList());
     
     public TestEntityImpl() {
@@ -126,8 +126,8 @@ public class TestEntityImpl extends AbstractEntity implements TestEntity {
         ServiceStateLogic.setExpectedState(this, Lifecycle.STARTING);
         counter.incrementAndGet();
         addLocations(locs);
-        ServiceStateLogic.setExpectedState(this, Lifecycle.RUNNING);
         setAttribute(SERVICE_UP, true);
+        ServiceStateLogic.setExpectedState(this, Lifecycle.RUNNING);
     }
 
     @Override
@@ -136,8 +136,8 @@ public class TestEntityImpl extends AbstractEntity implements TestEntity {
         callHistory.add("stop");
         ServiceStateLogic.setExpectedState(this, Lifecycle.STOPPING);
         counter.decrementAndGet();
-        ServiceStateLogic.setExpectedState(this, Lifecycle.STOPPED);
         setAttribute(SERVICE_UP, false);
+        ServiceStateLogic.setExpectedState(this, Lifecycle.STOPPED);
     }
 
     @Override
@@ -177,4 +177,10 @@ public class TestEntityImpl extends AbstractEntity implements TestEntity {
     public List<String> getCallHistory() {
         return callHistory;
     }
+    
+    public static class TestEntityWithoutEnrichers extends TestEntityImpl {
+        @Override
+        protected void initEnrichers() {}
+    }
+    
 }

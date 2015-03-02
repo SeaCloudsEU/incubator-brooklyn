@@ -43,11 +43,11 @@ import com.google.common.base.Objects;
  */
 public class HostGeoInfo implements Serializable {
     
-	private static final long serialVersionUID = -5866759901535266181L;
+    private static final long serialVersionUID = -5866759901535266181L;
 
     public static final Logger log = LoggerFactory.getLogger(HostGeoInfo.class);
 
-	/** the IP address */
+    /** the IP address */
     public final String address;
     
     public final String displayName;
@@ -79,6 +79,10 @@ public class HostGeoInfo implements Serializable {
             cachedLookup = Maybe.of(findHostGeoLookupImpl());
         }                
         return cachedLookup.get();
+    }
+    
+    public static void clearCachedLookup() {
+        cachedLookup = null;
     }
     
     /** returns null if cannot be set */

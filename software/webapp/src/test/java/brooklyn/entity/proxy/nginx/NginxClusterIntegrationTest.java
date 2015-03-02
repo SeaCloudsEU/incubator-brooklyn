@@ -18,11 +18,9 @@
  */
 package brooklyn.entity.proxy.nginx;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
-import java.net.URL;
 import java.util.Collections;
 import java.util.List;
 
@@ -64,7 +62,7 @@ public class NginxClusterIntegrationTest extends BrooklynAppLiveTestSupport {
 
     private static final long TIMEOUT_MS = 60*1000;
     
-    private URL war;
+    private String war;
     private Location localhostProvisioningLoc;
     private EntityManager entityManager;
     private LoadBalancerCluster loadBalancerCluster;
@@ -75,8 +73,8 @@ public class NginxClusterIntegrationTest extends BrooklynAppLiveTestSupport {
     @Override
     public void setUp() throws Exception {
         super.setUp();
-        war = checkNotNull(getClass().getClassLoader().getResource("hello-world.war"), "hello-world.war not on classpath");
-        localhostProvisioningLoc = mgmt.getLocationRegistry().resolve("localhost");
+        war = "classpath://hello-world.war";
+        localhostProvisioningLoc = app.newLocalhostProvisioningLocation();
         
         urlMappings = app.createAndManageChild(EntitySpec.create(BasicGroup.class)
                 .configure("childrenAsMembers", true));
@@ -109,7 +107,7 @@ public class NginxClusterIntegrationTest extends BrooklynAppLiveTestSupport {
         DynamicCluster serverPool = app.createAndManageChild(EntitySpec.create(DynamicCluster.class)
                 .configure(DynamicCluster.MEMBER_SPEC, EntitySpec.create(JBoss7Server.class))
                 .configure("initialSize", 1)
-                .configure(JavaWebAppService.ROOT_WAR, war.getPath()));
+                .configure(JavaWebAppService.ROOT_WAR, war.toString()));
         
         loadBalancerCluster = app.createAndManageChild(EntitySpec.create(LoadBalancerCluster.class)
                 .configure("serverPool", serverPool)
@@ -131,7 +129,7 @@ public class NginxClusterIntegrationTest extends BrooklynAppLiveTestSupport {
         DynamicCluster c1 = app.createAndManageChild(EntitySpec.create(DynamicCluster.class)
                 .configure(DynamicCluster.MEMBER_SPEC, EntitySpec.create(JBoss7Server.class))
                 .configure("initialSize", 1)
-                .configure(JavaWebAppService.NAMED_WARS, ImmutableList.of(war.getPath())));
+                .configure(JavaWebAppService.NAMED_WARS, ImmutableList.of(war)));
 
         UrlMapping urlMapping = entityManager.createEntity(EntitySpec.create(UrlMapping.class)
                 .configure("domain", "localhost")
@@ -156,19 +154,21 @@ public class NginxClusterIntegrationTest extends BrooklynAppLiveTestSupport {
 
     @Test(groups = "Integration")
     public void testClusterIsUpIffHasChildLoadBalancer() {
+        // Note the up-quorum-check behaves different for initialSize==0 (if explicit value not given):
+        // it would accept a size==0 as being serviceUp=true. Therefore don't do that!
         loadBalancerCluster = app.createAndManageChild(EntitySpec.create(LoadBalancerCluster.class)
                 .configure(LoadBalancerCluster.MEMBER_SPEC, nginxSpec)
-                .configure("initialSize", 0)
+                .configure("initialSize", 1)
                 .configure(NginxController.DOMAIN_NAME, "localhost"));
         
         app.start(ImmutableList.of(localhostProvisioningLoc));
-        EntityTestUtils.assertAttributeEqualsContinually(loadBalancerCluster, Startable.SERVICE_UP, false);
+        EntityTestUtils.assertAttributeEqualsContinually(loadBalancerCluster, Startable.SERVICE_UP, true);
+        
+        loadBalancerCluster.resize(0);
+        EntityTestUtils.assertAttributeEqualsEventually(loadBalancerCluster, Startable.SERVICE_UP, false);
         
         loadBalancerCluster.resize(1);
         EntityTestUtils.assertAttributeEqualsEventually(loadBalancerCluster, Startable.SERVICE_UP, true);
-
-        loadBalancerCluster.resize(0);
-        EntityTestUtils.assertAttributeEqualsEventually(loadBalancerCluster, Startable.SERVICE_UP, false);
     }
     
     // Warning: test is a little brittle for if a previous run leaves something on these required ports

@@ -18,8 +18,7 @@
  */
 package brooklyn.entity.webapp.nodejs;
 
-import static java.lang.String.format;
-
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -29,22 +28,19 @@ import org.slf4j.LoggerFactory;
 
 import brooklyn.entity.basic.AbstractSoftwareProcessSshDriver;
 import brooklyn.entity.basic.Attributes;
-import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.SoftwareProcess;
-import brooklyn.entity.drivers.downloads.DownloadResolver;
 import brooklyn.entity.webapp.WebAppService;
 import brooklyn.location.basic.SshMachineLocation;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.file.ArchiveUtils;
+import brooklyn.util.net.Networking;
 import brooklyn.util.os.Os;
 import brooklyn.util.ssh.BashCommands;
 import brooklyn.util.text.Strings;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
 public class NodeJsWebAppSshDriver extends AbstractSoftwareProcessSshDriver implements NodeJsWebAppDriver {
@@ -72,11 +68,12 @@ public class NodeJsWebAppSshDriver extends AbstractSoftwareProcessSshDriver impl
     @Override
     public void postLaunch() {
         String rootUrl = String.format("http://%s:%d/", getHostname(), getHttpPort());
+        entity.setAttribute(Attributes.MAIN_URI, URI.create(rootUrl));
         entity.setAttribute(WebAppService.ROOT_URL, rootUrl);
     }
 
     protected Map<String, Integer> getPortMap() {
-        return ImmutableMap.of("http", getHttpPort());
+        return MutableMap.of("http", getHttpPort());
     }
 
     @Override
@@ -87,10 +84,18 @@ public class NodeJsWebAppSshDriver extends AbstractSoftwareProcessSshDriver impl
                 .build();
     }
 
+    // TODO Suggest that other entities follow this pattern as well: check for port availability early
+    // to report failures early, and in case getShellEnvironment() tries to convert any null port numbers
+    // to int.
+    @Override
+    public void preInstall() {
+        super.preInstall();
+        Networking.checkPortsValid(getPortMap());
+    }
+    
     @Override
     public void install() {
-        List<String> packages = getEntity().getConfig(NodeJsWebAppService.NODE_PACKAGE_LIST);
-        LOG.info("Installing Node.JS {} {}", getEntity().getConfig(SoftwareProcess.SUGGESTED_VERSION), Iterables.toString(packages));
+        LOG.info("Installing Node.JS {}", getEntity().getConfig(SoftwareProcess.SUGGESTED_VERSION));
 
         List<String> commands = MutableList.<String>builder()
                 .add(BashCommands.INSTALL_CURL)
@@ -102,10 +107,6 @@ public class NodeJsWebAppSshDriver extends AbstractSoftwareProcessSshDriver impl
                 .add(BashCommands.sudo("n " + getEntity().getConfig(SoftwareProcess.SUGGESTED_VERSION)))
                 .build();
 
-        if (packages != null && packages.size() > 0) {
-            commands.add(BashCommands.sudo("npm install -g " + Joiner.on(' ').join(packages)));
-        }
-
         newScript(INSTALLING)
                 .body.append(commands)
                 .execute();
@@ -115,10 +116,14 @@ public class NodeJsWebAppSshDriver extends AbstractSoftwareProcessSshDriver impl
     public void customize() {
         List<String> commands = Lists.newLinkedList();
 
+        List<String> packages = getEntity().getConfig(NodeJsWebAppService.NODE_PACKAGE_LIST);
+        if (packages != null && packages.size() > 0) {
+            commands.add(BashCommands.sudo("npm install -g " + Joiner.on(' ').join(packages)));
+        }
+
         String gitRepoUrl = getEntity().getConfig(NodeJsWebAppService.APP_GIT_REPOSITORY_URL);
         String archiveUrl = getEntity().getConfig(NodeJsWebAppService.APP_ARCHIVE_URL);
         String appName = getEntity().getConfig(NodeJsWebAppService.APP_NAME);
-
         if (Strings.isNonBlank(gitRepoUrl) && Strings.isNonBlank(archiveUrl)) {
             throw new IllegalStateException("Only one of Git or archive URL must be set for " + getEntity());
         } else if (Strings.isNonBlank(gitRepoUrl)) {

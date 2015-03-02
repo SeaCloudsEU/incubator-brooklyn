@@ -44,6 +44,7 @@ import brooklyn.entity.basic.Lifecycle;
 import brooklyn.entity.basic.SoftwareProcess;
 import brooklyn.entity.group.DynamicCluster;
 import brooklyn.entity.proxying.EntitySpec;
+import brooklyn.entity.rebind.RebindOptions;
 import brooklyn.entity.rebind.RebindTestFixtureWithApp;
 import brooklyn.entity.webapp.jboss.JBoss7Server;
 import brooklyn.location.LocationSpec;
@@ -68,41 +69,42 @@ public class NginxRebindIntegrationTest extends RebindTestFixtureWithApp {
     private URL warUrl;
     private LocalhostMachineProvisioningLocation localhostProvisioningLocation;
     private List<WebAppMonitor> webAppMonitors = new CopyOnWriteArrayList<WebAppMonitor>();
-	private ExecutorService executor;
+    private ExecutorService executor;
     
-	@Override
-	protected boolean useLiveManagementContext() {
-	    // For Aled, the test failed without own ~/.brooklyn/brooklyn.properties.
-	    // Suspect that was caused by local environment, with custom brooklyn.ssh.config.scriptHeader
-	    // to set things like correct Java on path.
-	    return true;
-	}
-	
-    @BeforeMethod(groups = "Integration")
+    @Override
+    protected boolean useLiveManagementContext() {
+        // For Aled, the test failed without own ~/.brooklyn/brooklyn.properties.
+        // Suspect that was caused by local environment, with custom brooklyn.ssh.config.scriptHeader
+        // to set things like correct Java on path.
+        return true;
+    }
+    
+    @BeforeMethod(alwaysRun=true)
     public void setUp() throws Exception {
         super.setUp();
         warUrl = getClass().getClassLoader().getResource("hello-world.war");
-    	localhostProvisioningLocation = origManagementContext.getLocationManager().createLocation(LocationSpec.create(LocalhostMachineProvisioningLocation.class));
+        localhostProvisioningLocation = origManagementContext.getLocationManager().createLocation(LocationSpec.create(LocalhostMachineProvisioningLocation.class));
         executor = Executors.newCachedThreadPool();
     }
 
-    @AfterMethod(groups = "Integration", alwaysRun=true)
+    @AfterMethod(alwaysRun=true)
     public void tearDown() throws Exception {
         for (WebAppMonitor monitor : webAppMonitors) {
-        	monitor.terminate();
+            monitor.terminate();
         }
+        webAppMonitors.clear();
         if (executor != null) executor.shutdownNow();
         super.tearDown();
     }
 
     private WebAppMonitor newWebAppMonitor(String url, int expectedResponseCode) {
-    	WebAppMonitor monitor = new WebAppMonitor(url)
-//    	        .delayMillis(0) FIXME Re-enable to fast polling
-    			.expectedResponseCode(expectedResponseCode)
-		    	.logFailures(LOG);
-    	webAppMonitors.add(monitor);
-    	executor.execute(monitor);
-    	return monitor;
+        WebAppMonitor monitor = new WebAppMonitor(url)
+//                .delayMillis(0) FIXME Re-enable to fast polling
+                .expectedResponseCode(expectedResponseCode)
+                .logFailures(LOG);
+        webAppMonitors.add(monitor);
+        executor.execute(monitor);
+        return monitor;
     }
     
     /**
@@ -110,7 +112,7 @@ public class NginxRebindIntegrationTest extends RebindTestFixtureWithApp {
      */
     @Test(groups = "Integration")
     public void testRebindsWithEmptyServerPool() throws Exception {
-    	
+        
         // Set up nginx with a server pool
         DynamicCluster origServerPool = origApp.createAndManageChild(EntitySpec.create(DynamicCluster.class)
                 .configure(DynamicCluster.MEMBER_SPEC, EntitySpec.create(JBoss7Server.class))
@@ -130,7 +132,7 @@ public class NginxRebindIntegrationTest extends RebindTestFixtureWithApp {
         WebAppMonitor monitor = newWebAppMonitor(rootUrl, 404);
         final String origConfigFile = origNginx.getConfigFile();
         
-        newApp = rebind(false, true);
+        newApp = rebind(RebindOptions.create().terminateOrigManagementContext(true));
         final NginxController newNginx = (NginxController) Iterables.find(newApp.getChildren(), Predicates.instanceOf(NginxController.class));
 
         assertEquals(newNginx.getConfigFile(), origConfigFile);
@@ -174,7 +176,7 @@ public class NginxRebindIntegrationTest extends RebindTestFixtureWithApp {
         final String origConfigFile = origNginx.getConfigFile();
         
         // Rebind
-        newApp = rebind(false, true);
+        newApp = rebind(RebindOptions.create().terminateOrigManagementContext(true));
         ManagementContext newManagementContext = newApp.getManagementContext();
         final NginxController newNginx = (NginxController) Iterables.find(newApp.getChildren(), Predicates.instanceOf(NginxController.class));
         final DynamicCluster newServerPool = (DynamicCluster) newManagementContext.getEntityManager().getEntity(origServerPool.getId());
@@ -252,7 +254,7 @@ public class NginxRebindIntegrationTest extends RebindTestFixtureWithApp {
         final String origConfigFile = origNginx.getConfigFile();
         
         // Create a rebinding
-        newApp = rebind(false, true);
+        newApp = rebind(RebindOptions.create().terminateOrigManagementContext(true));
         ManagementContext newManagementContext = newApp.getManagementContext();
         final NginxController newNginx = (NginxController) Iterables.find(newApp.getChildren(), Predicates.instanceOf(NginxController.class));
         DynamicCluster newServerPool = (DynamicCluster) newManagementContext.getEntityManager().getEntity(origServerPool.getId());

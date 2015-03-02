@@ -64,23 +64,31 @@ public class MachineEntityImpl extends EmptySoftwareProcessImpl implements Machi
 
         // Sensors linux-specific
         if (!getMachine().getMachineDetails().getOsDetails().isLinux()) return;
-
         sensorFeed = SshFeed.builder()
                 .entity(this)
                 .period(Duration.THIRTY_SECONDS)
+                .poll(new SshPollConfig<Duration>(UPTIME)
+                        .command("cat /proc/uptime")
+                        .onFailureOrException(Functions.<Duration>constant(null))
+                        .onSuccess(new Function<SshPollValue, Duration>() {
+                            @Override
+                            public Duration apply(SshPollValue input) {
+                                return Duration.seconds( Double.valueOf( Strings.getFirstWord(input.getStdout()) ) );
+                            }
+                        }))
                 .poll(new SshPollConfig<Double>(LOAD_AVERAGE)
-                        .command("uptime")
+                        .command("cat /proc/loadavg | awk '{print $1}'")
                         .onFailureOrException(Functions.constant(-1d))
                         .onSuccess(new Function<SshPollValue, Double>() {
                             @Override
                             public Double apply(SshPollValue input) {
-                                String loadAverage = Strings.getFirstWordAfter(input.getStdout(), "load average:").replace(",", "");
-                                return Double.valueOf(loadAverage);
+                                String loadAverage = input.getStdout();
+                                return Double.valueOf(loadAverage) /  getMachine().getMachineDetails().getHardwareDetails().getCpuCount();
                             }
                         }))
                 .poll(new SshPollConfig<Double>(CPU_USAGE)
                         .command("cat /proc/stat")
-                        .onFailureOrException(Functions.constant(0d))
+                        .onFailureOrException(Functions.constant(-1d))
                         .onSuccess(new Function<SshPollValue, Double>() {
                             @Override
                             public Double apply(SshPollValue input) {

@@ -18,15 +18,15 @@
  */
 package brooklyn.rest.resources;
 
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Set;
 
 import javax.annotation.Nullable;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
@@ -38,6 +38,8 @@ import brooklyn.catalog.CatalogItem;
 import brooklyn.catalog.CatalogPredicates;
 import brooklyn.catalog.internal.BasicBrooklynCatalog;
 import brooklyn.catalog.internal.CatalogDto;
+import brooklyn.catalog.internal.CatalogItemComparator;
+import brooklyn.catalog.internal.CatalogUtils;
 import brooklyn.entity.Entity;
 import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.policy.Policy;
@@ -46,21 +48,21 @@ import brooklyn.rest.api.CatalogApi;
 import brooklyn.rest.domain.ApiError;
 import brooklyn.rest.domain.CatalogEntitySummary;
 import brooklyn.rest.domain.CatalogItemSummary;
-import brooklyn.rest.domain.SummaryComparators;
 import brooklyn.rest.transform.CatalogTransformer;
 import brooklyn.rest.util.WebResourceUtils;
 import brooklyn.util.ResourceUtils;
 import brooklyn.util.collections.MutableSet;
 import brooklyn.util.exceptions.Exceptions;
+import brooklyn.util.stream.Streams;
 import brooklyn.util.text.StringPredicates;
 import brooklyn.util.text.Strings;
 
-import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
-import com.google.common.io.CharStreams;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.io.Files;
 import com.sun.jersey.core.header.FormDataContentDisposition;
 
@@ -77,12 +79,14 @@ public class CatalogResource extends AbstractBrooklynRestResource implements Cat
     };
 
     @Override
-    public Response createFromMultipart(InputStream uploadedInputStream, FormDataContentDisposition fileDetail) throws IOException {
-      return create(CharStreams.toString(new InputStreamReader(uploadedInputStream, Charsets.UTF_8)));
+    @Consumes(MediaType.MULTIPART_FORM_DATA)
+    public Response createFromMultipart(InputStream uploadedInputStream, FormDataContentDisposition fileDetail) {
+      return create(Streams.readFullyString(uploadedInputStream));
     }
 
     static Set<String> missingIcons = MutableSet.of();
     
+    @SuppressWarnings("unchecked")
     @Override
     public Response create(String yaml) {
         CatalogItem<?,?> item;
@@ -100,20 +104,16 @@ public class CatalogResource extends AbstractBrooklynRestResource implements Cat
         // FIXME configurations/ not supported
         switch (item.getCatalogItemType()) {
         case TEMPLATE:
-            return Response.created(URI.create("applications/" + itemId))
+            return Response.created(URI.create("applications/" + itemId + "/" + item.getVersion()))
                     .entity(CatalogTransformer.catalogEntitySummary(brooklyn(), (CatalogItem<? extends Entity, EntitySpec<?>>) item))
                     .build();
         case ENTITY:
-            return Response.created(URI.create("entities/" + itemId))
+            return Response.created(URI.create("entities/" + itemId + "/" + item.getVersion()))
                     .entity(CatalogTransformer.catalogEntitySummary(brooklyn(), (CatalogItem<? extends Entity, EntitySpec<?>>) item))
                     .build();
         case POLICY:
             return Response.created(URI.create("policies/" + itemId))
                     .entity(CatalogTransformer.catalogPolicySummary(brooklyn(), (CatalogItem<? extends Policy, PolicySpec<?>>) item))
-                    .build();
-        case CONFIGURATION:
-            return Response.created(URI.create("configurations/" + itemId))
-                    .entity(CatalogTransformer.catalogEntitySummary(brooklyn(), (CatalogItem<? extends Entity, EntitySpec<?>>) item))
                     .build();
         default:
             throw new IllegalStateException("Unsupported catalog item type "+item.getCatalogItemType()+": "+item);
@@ -127,12 +127,25 @@ public class CatalogResource extends AbstractBrooklynRestResource implements Cat
     }
     
     @Override
+    @Deprecated
     public void deleteEntity(String entityId) throws Exception {
-      CatalogItem<?,?> result = brooklyn().getCatalog().getCatalogItem(entityId);
-      if (result==null) {
-        throw WebResourceUtils.notFound("Entity with id '%s' not found", entityId);
+        try {
+            CatalogItem<?, ?> item = CatalogUtils.getCatalogItemOptionalVersion(mgmt(), entityId);
+            if (item==null)
+                throw WebResourceUtils.notFound("Entity with id '%s' not found", entityId);
+            brooklyn().getCatalog().deleteCatalogItem(item.getSymbolicName(), item.getVersion());
+        } catch (NoSuchElementException e) {
+            throw WebResourceUtils.notFound("Entity with id '%s' not found", entityId);
+        }
+    }
+
+    @Override
+    public void deleteEntity(String entityId, String version) throws Exception {
+      try {
+          brooklyn().getCatalog().deleteCatalogItem(entityId, version);
+      } catch (NoSuchElementException e) {
+          throw WebResourceUtils.notFound("Entity with id '%s:%s' not found", entityId, version);
       }
-      brooklyn().getCatalog().deleteCatalogItem(entityId);
     }
 
     @Override
@@ -145,20 +158,44 @@ public class CatalogResource extends AbstractBrooklynRestResource implements Cat
         return getCatalogItemSummariesMatchingRegexFragment(CatalogPredicates.IS_TEMPLATE, regex, fragment);
     }
 
+    
     @Override
-    @SuppressWarnings("unchecked")
+    @Deprecated
     public CatalogEntitySummary getEntity(String entityId) {
-      CatalogItem<?,?> result = brooklyn().getCatalog().getCatalogItem(entityId);
-      if (result==null) {
-        throw WebResourceUtils.notFound("Entity with id '%s' not found", entityId);
-      }
+        CatalogItem<? extends Entity,EntitySpec<?>> result =
+                CatalogUtils.getCatalogItemOptionalVersion(mgmt(), Entity.class, entityId);
 
-      return CatalogTransformer.catalogEntitySummary(brooklyn(), (CatalogItem<? extends Entity, EntitySpec<?>>) result);
+        if (result==null) {
+            throw WebResourceUtils.notFound("Entity with id '%s' not found", entityId);
+        }
+
+        return CatalogTransformer.catalogEntitySummary(brooklyn(), result);
+    }
+    
+    @Override
+    public CatalogEntitySummary getEntity(String entityId, String version) {
+        //TODO These casts are not pretty, we could just provide separate get methods for the different types?
+        //Or we could provide asEntity/asPolicy cast methods on the CataloItem doing a safety check internally
+        @SuppressWarnings("unchecked")
+        CatalogItem<? extends Entity, EntitySpec<?>> result =
+              (CatalogItem<? extends Entity, EntitySpec<?>>) brooklyn().getCatalog().getCatalogItem(entityId, version);
+
+        if (result==null) {
+            throw WebResourceUtils.notFound("Entity with id '%s:%s' not found", entityId, version);
+        }
+
+        return CatalogTransformer.catalogEntitySummary(brooklyn(), result);
     }
 
     @Override
-    public CatalogEntitySummary getApplication(String applicationId) {
-        return getEntity(applicationId);
+    @Deprecated
+    public CatalogEntitySummary getApplication(String entityId) throws Exception {
+        return getEntity(entityId);
+    }
+
+    @Override
+    public CatalogEntitySummary getApplication(String applicationId, String version) {
+        return getEntity(applicationId, version);
     }
 
     @Override
@@ -167,13 +204,29 @@ public class CatalogResource extends AbstractBrooklynRestResource implements Cat
     }
     
     @Override
+    @Deprecated
     public CatalogItemSummary getPolicy(String policyId) {
-        CatalogItem<?,?> result = brooklyn().getCatalog().getCatalogItem(policyId);
+        CatalogItem<? extends Policy, PolicySpec<?>> result =
+            CatalogUtils.getCatalogItemOptionalVersion(mgmt(), Policy.class, policyId);
+
         if (result==null) {
-          throw WebResourceUtils.notFound("Policy with id '%s' not found", policyId);
+            throw WebResourceUtils.notFound("Policy with id '%s' not found", policyId);
         }
 
-        return CatalogTransformer.catalogPolicySummary(brooklyn(), (CatalogItem<? extends Policy, PolicySpec<?>>) result);
+        return CatalogTransformer.catalogPolicySummary(brooklyn(), result);
+    }
+
+    @Override
+    public CatalogItemSummary getPolicy(String policyId, String version) throws Exception {
+        @SuppressWarnings("unchecked")
+        CatalogItem<? extends Policy, PolicySpec<?>> result =
+                (CatalogItem<? extends Policy, PolicySpec<?>>)brooklyn().getCatalog().getCatalogItem(policyId, version);
+
+        if (result==null) {
+          throw WebResourceUtils.notFound("Policy with id '%s:%s' not found", policyId, version);
+        }
+
+        return CatalogTransformer.catalogPolicySummary(brooklyn(), result);
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
@@ -183,17 +236,29 @@ public class CatalogResource extends AbstractBrooklynRestResource implements Cat
         if (Strings.isNonEmpty(regex))
             filters.add(CatalogPredicates.xml(StringPredicates.containsRegex(regex)));
         if (Strings.isNonEmpty(fragment))
-            filters.add(CatalogPredicates.xml(StringPredicates.containsLiteralCaseInsensitive(fragment)));
+            filters.add(CatalogPredicates.xml(StringPredicates.containsLiteralIgnoreCase(fragment)));
 
-        return FluentIterable.from(brooklyn().getCatalog().getCatalogItems())
-                .filter(Predicates.and(filters))
-                .transform(TO_CATALOG_ITEM_SUMMARY)
-                .toSortedList(SummaryComparators.idComparator());
+        ImmutableList<CatalogItem<Object, Object>> sortedItems =
+                FluentIterable.from(brooklyn().getCatalog().getCatalogItems())
+                    .filter(Predicates.and(filters))
+                    .toSortedList(CatalogItemComparator.INSTANCE);
+        return Lists.transform(sortedItems, TO_CATALOG_ITEM_SUMMARY);
     }
 
     @Override
+    @Deprecated
     public Response getIcon(String itemId) {
-        CatalogItem<?,?> result = brooklyn().getCatalog().getCatalogItem(itemId);
+        CatalogItem<?,?> result = CatalogUtils.getCatalogItemOptionalVersion(mgmt(), itemId);
+        return getCatalogItemIcon(result);
+    }
+
+    @Override
+    public Response getIcon(String itemId, String version) {
+        CatalogItem<?,?> result = brooklyn().getCatalog().getCatalogItem(itemId, version);
+        return getCatalogItemIcon(result);
+    }
+
+    private Response getCatalogItemIcon(CatalogItem<?, ?> result) {
         String url = result.getIconUrl();
         if (url==null) {
             log.debug("No icon available for "+result+"; returning "+Status.NO_CONTENT);
@@ -208,7 +273,7 @@ public class CatalogResource extends AbstractBrooklynRestResource implements Cat
             
             MediaType mime = WebResourceUtils.getImageMediaTypeFromExtension(Files.getFileExtension(url));
             try {
-                Object content = ResourceUtils.create(result.newClassLoadingContext(mgmt())).getResourceFromUrl(url);
+                Object content = ResourceUtils.create(CatalogUtils.newClassLoadingContext(mgmt(), result)).getResourceFromUrl(url);
                 return Response.ok(content, mime).build();
             } catch (Exception e) {
                 Exceptions.propagateIfFatal(e);
@@ -216,13 +281,13 @@ public class CatalogResource extends AbstractBrooklynRestResource implements Cat
                     if (missingIcons.add(url)) {
                         // note: this can be quite common when running from an IDE, as resources may not be copied;
                         // a mvn build should sort it out (the IDE will then find the resources, until you clean or maybe refresh...)
-                        log.warn("Missing icon data for "+itemId+", expected at: "+url+" (subsequent messages will log debug only)");
+                        log.warn("Missing icon data for "+result.getId()+", expected at: "+url+" (subsequent messages will log debug only)");
                         log.debug("Trace for missing icon data at "+url+": "+e, e);
                     } else {
-                        log.debug("Missing icon data for "+itemId+", expected at: "+url+" (already logged WARN and error details)");
+                        log.debug("Missing icon data for "+result.getId()+", expected at: "+url+" (already logged WARN and error details)");
                     }
                 }
-                throw WebResourceUtils.notFound("Icon unavailable for %s", itemId);
+                throw WebResourceUtils.notFound("Icon unavailable for %s", result.getId());
             }
         }
         

@@ -23,7 +23,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -116,8 +115,8 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
     }
 
     static {
-        RendererHints.register(FIRST, new RendererHints.NamedActionWithUrl("Open", DelegateEntity.EntityUrl.entityUrl()));
-        RendererHints.register(CLUSTER, new RendererHints.NamedActionWithUrl("Open", DelegateEntity.EntityUrl.entityUrl()));
+        RendererHints.register(FIRST, RendererHints.namedActionWithUrl("Open", DelegateEntity.EntityUrl.entityUrl()));
+        RendererHints.register(CLUSTER, RendererHints.namedActionWithUrl("Open", DelegateEntity.EntityUrl.entityUrl()));
     }
 
 
@@ -294,24 +293,22 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
 
         int initialSize = getConfig(INITIAL_SIZE).intValue();
         int initialQuorumSize = getInitialQuorumSize();
+        Exception internalError = null;
 
         try {
             resize(initialSize);
         } catch (Exception e) {
             Exceptions.propagateIfFatal(e);
-            // apart from logging, ignore problems here; we extract them below
+            // Apart from logging, ignore problems here; we extract them below.
+            // But if it was this thread that threw the exception (rather than a sub-task), then need
+            // to record that failure here.
             LOG.debug("Error resizing "+this+" to size "+initialSize+" (collecting and handling): "+e, e);
+            internalError = e;
         }
 
         Iterable<Task<?>> failed = Tasks.failed(Tasks.children(Tasks.current()));
-        Iterator<Task<?>> fi = failed.iterator();
-        boolean noFailed=true, severalFailed=false;
-        if (fi.hasNext()) {
-            noFailed = false;
-            fi.next();
-            if (fi.hasNext())
-                severalFailed = true;
-        }
+        boolean noFailed = Iterables.isEmpty(failed);
+        boolean severalFailed = Iterables.size(failed) > 1;
 
         int currentSize = getCurrentSize().intValue();
         if (currentSize < initialQuorumSize) {
@@ -327,13 +324,20 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
                     + (initialQuorumSize != initialSize ? " (initial quorum size is " + initialQuorumSize + ")" : "");
             }
             Throwable firstError = Tasks.getError(Maybe.next(failed.iterator()).orNull());
+            if (firstError==null && internalError!=null) {
+                // only use the internal error if there were no nested task failures
+                // (otherwise the internal error should be a wrapper around the nested failures)
+                firstError = internalError;
+            }
             if (firstError!=null) {
-                if (severalFailed)
+                if (severalFailed) {
                     message += "; first failure is: "+Exceptions.collapseText(firstError);
-                else
+                } else {
                     message += ": "+Exceptions.collapseText(firstError);
+                }
             }
             throw new IllegalStateException(message, firstError);
+            
         } else if (currentSize < initialSize) {
             LOG.warn(
                     "On start of cluster {}, size {} reached initial minimum quorum size of {} but did not reach desired size {}; continuing",
@@ -414,12 +418,12 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
     @Override
     public Integer resize(Integer desiredSize) {
         synchronized (mutex) {
-            int currentSize = getCurrentSize();
-            int delta = desiredSize - currentSize;
+            int originalSize = getCurrentSize();
+            int delta = desiredSize - originalSize;
             if (delta != 0) {
-                LOG.info("Resize {} from {} to {}", new Object[] {this, currentSize, desiredSize});
+                LOG.info("Resize {} from {} to {}", new Object[] {this, originalSize, desiredSize});
             } else {
-                if (LOG.isDebugEnabled()) LOG.debug("Resize no-op {} from {} to {}", new Object[] {this, currentSize, desiredSize});
+                if (LOG.isDebugEnabled()) LOG.debug("Resize no-op {} from {} to {}", new Object[] {this, originalSize, desiredSize});
             }
             resizeByDelta(delta);
         }
@@ -741,14 +745,6 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
 
         ((EntityLocal) entity).setAttribute(CLUSTER_MEMBER, true);
         ((EntityLocal) entity).setAttribute(CLUSTER, this);
-        synchronized (this) {
-            if (getAttribute(FIRST) == null) {
-                setAttribute(FIRST, entity);
-                ((EntityLocal) entity).setAttribute(FIRST_MEMBER, true);
-            } else {
-                ((EntityLocal) entity).setAttribute(FIRST_MEMBER, false);
-            }
-        }
 
         Entities.manage(entity);
         addMember(entity);
@@ -786,7 +782,8 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
             return Lists.newArrayList();
         
         if (delta == 1 && !isAvailabilityZoneEnabled()) {
-            return ImmutableList.of(pickAndRemoveMember()); // for backwards compatibility in sub-classes
+            Maybe<Entity> member = tryPickAndRemoveMember();
+            return (member.isPresent()) ? ImmutableList.of(member.get()) : ImmutableList.<Entity>of();
         }
 
         // TODO inefficient impl
@@ -807,28 +804,29 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
         } else {
             List<Entity> entities = Lists.newArrayList();
             for (int i = 0; i < delta; i++) {
-                entities.add(pickAndRemoveMember());
+                // don't assume we have enough members; e.g. if shrinking to zero and someone else concurrently stops a member,
+                // then just return what we were able to remove.
+                Maybe<Entity> member = tryPickAndRemoveMember();
+                if (member.isPresent()) entities.add(member.get());
             }
             return entities;
         }
     }
 
-    /**
-     * @deprecated since 0.6.0; subclasses should instead override {@link #pickAndRemoveMembers(int)} if they really need to!
-     */
-    protected Entity pickAndRemoveMember() {
+    private Maybe<Entity> tryPickAndRemoveMember() {
         assert !isAvailabilityZoneEnabled() : "should instead call pickAndRemoveMembers(int) if using availability zones";
 
         // TODO inefficient impl
-        Preconditions.checkState(getMembers().size() > 0, "Attempt to remove a node when members is empty, from cluster "+this);
-        if (LOG.isDebugEnabled()) LOG.debug("Removing a node from {}", this);
+        Collection<Entity> members = getMembers();
+        if (members.isEmpty()) return Maybe.absent();
 
-        Entity entity = getRemovalStrategy().apply(getMembers());
+        if (LOG.isDebugEnabled()) LOG.debug("Removing a node from {}", this);
+        Entity entity = getRemovalStrategy().apply(members);
         Preconditions.checkNotNull(entity, "No entity chosen for removal from "+getId());
         Preconditions.checkState(entity instanceof Startable, "Chosen entity for removal not stoppable: cluster="+this+"; choice="+entity);
 
         removeMember(entity);
-        return entity;
+        return Maybe.of(entity);
     }
 
     protected void discardNode(Entity entity) {

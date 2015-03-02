@@ -26,6 +26,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 
 public class Functionals {
 
@@ -89,6 +90,9 @@ public class Functionals {
             @Override public O apply(I input) {
                 return supplier.get();
             }
+            @Override public String toString() {
+                return "function("+supplier+")";
+            }
         }
         return new SupplierAsFunction();
     }
@@ -119,8 +123,29 @@ public class Functionals {
             public T call() {
                 return supplier.get();
             }
+            @Override
+            public String toString() {
+                return "callable("+supplier+")";
+            }
         }
         return new SupplierAsCallable();
+    }
+    public static <T,U> Callable<U> callable(Function<T,U> f, T x) {
+        return callable(Suppliers.compose(f, Suppliers.ofInstance(x)));
+    }
+
+    public static <T> Predicate<T> predicate(final Function<T,Boolean> f) {
+        class FunctionAsPredicate implements Predicate<T> {
+            @Override
+            public boolean apply(T input) {
+                return f.apply(input);
+            }
+            @Override
+            public String toString() {
+                return "predicate("+f+")";
+            }
+        }
+        return new FunctionAsPredicate();
     }
 
 }

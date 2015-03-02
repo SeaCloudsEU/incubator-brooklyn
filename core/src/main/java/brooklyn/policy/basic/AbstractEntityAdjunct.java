@@ -238,6 +238,9 @@ public abstract class AbstractEntityAdjunct extends AbstractBrooklynObject imple
     public void setEntity(EntityLocal entity) {
         if (destroyed.get()) throw new IllegalStateException("Cannot set entity on a destroyed entity adjunct");
         this.entity = entity;
+        if (entity!=null && getCatalogItemId() == null) {
+            setCatalogItemId(entity.getCatalogItemId());
+        }
     }
     
     /** @deprecated since 0.7.0 only {@link AbstractEnricher} has emit convenience */
@@ -358,16 +361,22 @@ public abstract class AbstractEntityAdjunct extends AbstractBrooklynObject imple
         return uniqueTag;
     }
 
-    public TagSupport getTagSupport() {
+    public TagSupport tags() {
         return new AdjunctTagSupport();
     }
 
-    protected class AdjunctTagSupport extends BasicTagSupport {
+    public class AdjunctTagSupport extends BasicTagSupport {
         @Override
         public Set<Object> getTags() {
             ImmutableSet.Builder<Object> rb = ImmutableSet.builder().addAll(super.getTags());
             if (getUniqueTag()!=null) rb.add(getUniqueTag());
             return rb.build();
+        }
+        public String getUniqueTag() {
+            return AbstractEntityAdjunct.this.getUniqueTag();
+        }
+        public void setUniqueTag(String uniqueTag) {
+            AbstractEntityAdjunct.this.uniqueTag = uniqueTag;
         }
     }
 

@@ -23,12 +23,11 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.config.render.RendererHints;
 import brooklyn.enricher.Enrichers;
 import brooklyn.entity.Entity;
 import brooklyn.entity.basic.Attributes;
-import brooklyn.entity.webapp.HttpsSslConfig;
 import brooklyn.entity.webapp.JavaWebAppSoftwareProcessImpl;
-import brooklyn.entity.webapp.WebAppServiceMethods;
 import brooklyn.event.feed.http.HttpFeed;
 import brooklyn.event.feed.http.HttpPollConfig;
 import brooklyn.event.feed.http.HttpValueFunctions;
@@ -41,7 +40,7 @@ import com.google.common.net.HostAndPort;
 
 public class JBoss7ServerImpl extends JavaWebAppSoftwareProcessImpl implements JBoss7Server {
 
-	public static final Logger log = LoggerFactory.getLogger(JBoss7ServerImpl.class);
+    public static final Logger log = LoggerFactory.getLogger(JBoss7ServerImpl.class);
 
     private volatile HttpFeed httpFeed;
     
@@ -67,6 +66,10 @@ public class JBoss7ServerImpl extends JavaWebAppSoftwareProcessImpl implements J
         return (JBoss7Driver) super.getDriver();
     }
     
+    static {
+        RendererHints.register(MANAGEMENT_URL, RendererHints.namedActionWithUrl());
+    }
+
     @Override
     protected void connectSensors() {
         super.connectSensors();
@@ -104,6 +107,7 @@ public class JBoss7ServerImpl extends JavaWebAppSoftwareProcessImpl implements J
                         .onSuccess(HttpValueFunctions.jsonContents("maxTime", Integer.class)))
                 .poll(new HttpPollConfig<Long>(BYTES_RECEIVED)
                         .vars(includeRuntimeUriVars)
+                        // jboss seems to report 0 even if it has received lots of requests; dunno why.
                         .onSuccess(HttpValueFunctions.jsonContents("bytesReceived", Long.class)))
                 .poll(new HttpPollConfig<Long>(BYTES_SENT)
                         .vars(includeRuntimeUriVars)
@@ -175,32 +179,6 @@ public class JBoss7ServerImpl extends JavaWebAppSoftwareProcessImpl implements J
         return getConfig(DEPLOYMENT_TIMEOUT);
     }
 
-    public boolean isHttpEnabled() {
-        return WebAppServiceMethods.isProtocolEnabled(this, "HTTP");
-    }
-    
-    public boolean isHttpsEnabled() {
-        return WebAppServiceMethods.isProtocolEnabled(this, "HTTPS");
-    }
-    
-    public Integer getHttpPort() {
-        return getAttribute(HTTP_PORT);
-    }
-    
-    public Integer getHttpsPort() {
-        return getAttribute(HTTPS_PORT);
-    }
-    
-    public String getHttpsSslKeyAlias() {
-        HttpsSslConfig config = getAttribute(HTTPS_SSL_CONFIG);
-        return (config == null) ? null : config.getKeyAlias();
-    }
-    
-    public String getHttpsSslKeystorePassword() {
-        HttpsSslConfig config = getAttribute(HTTPS_SSL_CONFIG);
-        return (config == null) ? null : config.getKeystorePassword();
-    }
-    
     /** Path of the keystore file on the AS7 server */
     public String getHttpsSslKeystoreFile() {
         return getDriver().getSslKeystoreFile();

@@ -21,22 +21,26 @@ package brooklyn.management.entitlement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.config.BrooklynProperties;
+import brooklyn.config.ConfigKey;
+import brooklyn.entity.Entity;
+import brooklyn.entity.basic.BrooklynTaskTags;
+import brooklyn.entity.basic.ConfigKeys;
+import brooklyn.entity.basic.Entities;
+import brooklyn.management.ManagementContext;
+import brooklyn.management.Task;
+import brooklyn.management.internal.ManagementContextInternal;
+import brooklyn.util.exceptions.Exceptions;
+import brooklyn.util.javalang.Reflections;
+import brooklyn.util.task.Tasks;
+import brooklyn.util.text.Strings;
+
 import com.google.common.annotations.Beta;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.reflect.TypeToken;
-
-import brooklyn.config.BrooklynProperties;
-import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
-import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.entity.basic.Entities;
-import brooklyn.util.ResourceUtils;
-import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.javalang.Reflections;
-import brooklyn.util.text.Strings;
 
 /** @since 0.7.0 */
 @Beta
@@ -47,10 +51,9 @@ public class Entitlements {
     // ------------------- individual permissions
     
     public static EntitlementClass<Entity> SEE_ENTITY = new BasicEntitlementClassDefinition<Entity>("entity.see", Entity.class);
-    
     public static EntitlementClass<EntityAndItem<String>> SEE_SENSOR = new BasicEntitlementClassDefinition<EntityAndItem<String>>("sensor.see", EntityAndItem. typeToken(String.class));
-    
     public static EntitlementClass<EntityAndItem<String>> INVOKE_EFFECTOR = new BasicEntitlementClassDefinition<EntityAndItem<String>>("effector.invoke", EntityAndItem.typeToken(String.class));
+    public static EntitlementClass<Entity> MODIFY_ENTITY = new BasicEntitlementClassDefinition<Entity>("entity.modify", Entity.class);
     
     /** the permission to deploy an application, where parameter is some representation of the app to be deployed (spec instance or yaml plan) */
     public static EntitlementClass<Object> DEPLOY_APPLICATION = new BasicEntitlementClassDefinition<Object>("app.deploy", Object.class);
@@ -68,6 +71,7 @@ public class Entitlements {
         ENTITLEMENT_SEE_ENTITY(SEE_ENTITY),
         ENTITLEMENT_SEE_SENSOR(SEE_SENSOR),
         ENTITLEMENT_INVOKE_EFFECTOR(INVOKE_EFFECTOR),
+        ENTITLEMENT_MODIFY_ENTITY(MODIFY_ENTITY),
         ENTITLEMENT_DEPLOY_APPLICATION(DEPLOY_APPLICATION),
         ENTITLEMENT_SEE_ALL_SERVER_INFO(SEE_ALL_SERVER_INFO),
         ENTITLEMENT_ROOT(ROOT),
@@ -220,8 +224,30 @@ public class Entitlements {
         public static final ThreadLocal<EntitlementContext> perThreadEntitlementsContextHolder = new ThreadLocal<EntitlementContext>();
     }
 
+    /** 
+     * Finds the currently applicable {@link EntitlementContext} by examining the current thread
+     * then by investigating the current task, its submitter, etc. */
+    // NOTE: entitlements are propagated to tasks whenever they are created, as tags
+    // (see BrooklynTaskTags.tagForEntitlement and BasicExecutionContext.submitInternal).
+    // It might be cheaper to only do this lookup, not to propagate as tags, and to ensure
+    // all entitlement operations are wrapped in a task at source; but currently we do not
+    // do that so we need at least to set entitlement on the outermost task.
+    // Setting it on tasks submitted by a task is not strictly necessary (i.e. in BasicExecutionContext)
+    // but seems cheap enough, and means checking entitlements is fast, if we choose to do that more often.
     public static EntitlementContext getEntitlementContext() {
-        return PerThreadEntitlementContextHolder.perThreadEntitlementsContextHolder.get();
+        EntitlementContext context;
+        context = PerThreadEntitlementContextHolder.perThreadEntitlementsContextHolder.get();
+        if (context!=null) return context;
+        
+        Task<?> task = Tasks.current();
+        while (task!=null) {
+            context = BrooklynTaskTags.getEntitlement(task);
+            if (context!=null) return context;
+            task = task.getSubmittedByTask();
+        }
+        
+        // no entitlements set -- assume entitlements not used, or system internal
+        return null;
     }
 
     public static void setEntitlementContext(EntitlementContext context) {
@@ -263,23 +289,27 @@ public class Entitlements {
         + "or supply the name of an "+EntitlementManager.class+" class to instantiate, taking a 1-arg BrooklynProperties constructor or a 0-arg constructor",
         "root");
     
-    public static EntitlementManager newManager(ResourceUtils loader, BrooklynProperties brooklynProperties) {
-        EntitlementManager result = newGlobalManager(loader, brooklynProperties);
+    public static EntitlementManager newManager(ManagementContext mgmt, BrooklynProperties brooklynProperties) {
+        EntitlementManager result = newGlobalManager(mgmt, brooklynProperties);
         // TODO read per user settings from brooklyn.properties, if set there ?
         return result;
     }
-    private static EntitlementManager newGlobalManager(ResourceUtils loader, BrooklynProperties brooklynProperties) {
+    private static EntitlementManager newGlobalManager(ManagementContext mgmt, BrooklynProperties brooklynProperties) {
         String type = brooklynProperties.getConfig(GLOBAL_ENTITLEMENT_MANAGER);
         if ("root".equalsIgnoreCase(type)) return new PerUserEntitlementManagerWithDefault(root());
         if ("readonly".equalsIgnoreCase(type)) return new PerUserEntitlementManagerWithDefault(readOnly());
         if ("minimal".equalsIgnoreCase(type)) return new PerUserEntitlementManagerWithDefault(minimal());
         if (Strings.isNonBlank(type)) {
             try {
-                Class<?> clazz = loader.getLoader().loadClass(type);
+                ClassLoader cl = ((ManagementContextInternal)mgmt).getBaseClassLoader();
+                if (cl==null) cl = Entitlements.class.getClassLoader();
+                Class<?> clazz = cl.loadClass(type);
                 Optional<?> result = Reflections.invokeConstructorWithArgs(clazz, brooklynProperties);
                 if (result.isPresent()) return (EntitlementManager) result.get();
                 return (EntitlementManager) clazz.newInstance();
-            } catch (Exception e) { throw Exceptions.propagate(e); }
+            } catch (Exception e) { 
+                throw Exceptions.propagate(e); 
+            }
         }
         throw new IllegalStateException("Invalid entitlement manager specified: '"+type+"'");
     }

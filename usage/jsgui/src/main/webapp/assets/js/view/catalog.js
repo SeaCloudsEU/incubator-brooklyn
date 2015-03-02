@@ -17,7 +17,7 @@
  * under the License.
 */
 define([
-    "underscore", "jquery", "backbone", "formatJson", "brooklyn",
+    "underscore", "jquery", "backbone", "brooklyn",
     "model/location", "model/entity",
     "text!tpl/catalog/page.html",
     "text!tpl/catalog/details-entity.html",
@@ -29,7 +29,7 @@ define([
     "text!tpl/catalog/nav-entry.html",
 
     "bootstrap", "jquery-form"
-], function(_, $, Backbone, FormatJSON, Brooklyn,
+], function(_, $, Backbone, Brooklyn,
         Location, Entity,
         CatalogPageHtml, DetailsEntityHtml, DetailsGenericHtml, LocationDetailsHtml,
         AddCatalogEntryHtml, AddEntityHtml, AddLocationHtml, EntryHtml) {
@@ -185,7 +185,10 @@ define([
                     .done(function (data, status, xhr) {
                         // Can extract location of new item with:
                         //model.url = Brooklyn.util.pathOf(xhr.getResponseHeader("Location"));
+                        submitButton.button("reset");
+                        self.close();  // one of the calls below should draw a different view
                         parent.loadAccordionItem("entities", data.id);
+                        parent.loadAccordionItem("applications", data.id);
                     })
                     .fail(function (xhr, status, error) {
                         submitButton.button("reset");
@@ -232,6 +235,8 @@ define([
                 location.save()
                     .done(function (newModel) {
                         newModel = new Location.Model(newModel);
+                        submitButton.button("reset");
+                        self.close();  // the call below should draw a different view
                         parent.loadAccordionItem("locations", newModel.id);
                     })
                     .fail(function (response) {
@@ -283,7 +288,7 @@ define([
             // Returns template applied to function arguments. Alter if collection altered.
             // Will be run in the context of the AccordionItemView.
             this.entryTemplateArgs = this.options.entryTemplateArgs || function(model, index) {
-                return {type: model.get("type"), id: model.get("id")};
+                return {type: model.getVersionedAttr("type"), id: model.get("id")};
             };
 
             // undefined argument is used for existing model items
@@ -313,19 +318,24 @@ define([
             return this;
         },
 
+        singleItemTemplater: function(isChild, model, index) {
+            var args = _.extend({
+                    cid: model.cid,
+                    isChild: isChild,
+                    extraClasses: (activeDetailsView == this.name && model.cid == this.activeCid) ? "active" : ""
+                }, this.entryTemplateArgs(model));
+            return this.template(args);
+        },
+
         renderEntries: function() {
-            var name = this.name, active = this.activeCid;
-            var templater = function(model, index) {
-                var args = _.extend({
-                        cid: model.cid,
-                        extraClasses: (activeDetailsView == name && model.cid == active) ? "active" : ""
-                    }, this.entryTemplateArgs(model));
-                return this.template(args);
-            };
-            var elements = this.collection.map(templater, this);
+            var elements = this.collection.map(_.partial(this.singleItemTemplater, false), this);
+            this.updateContent(elements.join(''));
+        },
+
+        updateContent: function(markup) {
             this.$(".accordion-body")
                 .empty()
-                .append(elements.join(''));
+                .append(markup);
         },
 
         refresh: function() {
@@ -362,6 +372,34 @@ define([
             }
         }
     });
+    
+    var AccordionEntityView = AccordionItemView.extend({
+        renderEntries: function() {
+            var symbolicNameFn = function(model) {return model.get("symbolicName")};
+            var groups = this.collection.groupBy(symbolicNameFn);
+            var orderedIds = _.uniq(this.collection.map(symbolicNameFn));
+
+            function getLatestStableVersion(items) {
+                //the server sorts items by descending version, snapshots at the back
+                return items[0];
+            }
+
+            var catalogTree = orderedIds.map(function(symbolicName) {
+                var group = groups[symbolicName];
+                var root = getLatestStableVersion(group);
+                var children = _.reject(group, function(model) {return root.id == model.id;});
+                return {root: root, children: children};
+            });
+
+            var templater = function(memo, item, index) {
+                memo.push(this.singleItemTemplater(false, item.root));
+                return memo.concat(_.map(item.children, _.partial(this.singleItemTemplater, true), this));
+            };
+
+            var elements = _.reduce(catalogTree, templater, [], this);
+            this.updateContent(elements.join(''));
+        }
+    });
 
     // Controls whole page. Parent of accordion items and details view.
     var CatalogResourceView = Backbone.View.extend({
@@ -381,24 +419,28 @@ define([
             // `this' will not be set correctly for the onItemSelected callbacks.
             _.bindAll(this);
             this.accordion = this.options.accordion || {
-                "applications": new AccordionItemView({
+                "applications": new AccordionEntityView({
                     name: "applications",
                     singular: "application",
                     onItemSelected: _.partial(this.showCatalogItem, DetailsEntityHtml),
                     model: Entity.Model,
                     autoOpen: !this.options.kind || this.options.kind == "applications"
                 }),
-                "entities": new AccordionItemView({
+                "entities": new AccordionEntityView({
                     name: "entities",
                     singular: "entity",
                     onItemSelected: _.partial(this.showCatalogItem, DetailsEntityHtml),
                     model: Entity.Model,
                     autoOpen: this.options.kind == "entities"
                 }),
-                "policies": new AccordionItemView({
+                "policies": new AccordionEntityView({
+                    // TODO needs parsing, and probably its own model
+                    // but cribbing "entity" works for now 
+                    // (and not setting a model can cause errors intermittently)
                     onItemSelected: _.partial(this.showCatalogItem, DetailsEntityHtml),
                     name: "policies",
                     singular: "policy",
+                    model: Entity.Model,
                     autoOpen: this.options.kind == "policies"
                 }),
                 "locations": new AccordionItemView({
@@ -466,13 +508,15 @@ define([
             } else {
                 var accordion = this.accordion[kind];
                 var self = this;
-                accordion.collection.fetch()
+                // reset is needed because we rely on server's ordering;
+                // without it, server additions are placed at end of list
+                accordion.collection.fetch({reset: true})
                     .then(function() {
                         var model = accordion.collection.get(id);
                         if (!model) {
-                            self.setDetailsView(new CatalogItemDetailsView().renderEmpty(
-                                    "No " + accordion.options.singular + " with id: " + id));
+                            // caller probably passed the wrong kind (in case of entity v app, the caller might try both)                        
                         } else {
+                            Backbone.history.navigate("/v1/catalog/"+kind+"/"+id);
                             activeDetailsView = kind;
                             accordion.activeCid = model.cid;
                             accordion.options.onItemSelected(kind, model);

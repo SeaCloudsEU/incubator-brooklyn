@@ -23,15 +23,15 @@ import java.util.Collection;
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.Entity;
 import brooklyn.entity.Group;
-import brooklyn.entity.basic.QuorumCheck.QuorumChecks;
 import brooklyn.entity.basic.ServiceStateLogic.ComputeServiceIndicatorsFromChildrenAndMembers;
 import brooklyn.entity.trait.Changeable;
 import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.Sensors;
+import brooklyn.util.collections.QuorumCheck;
+import brooklyn.util.collections.QuorumCheck.QuorumChecks;
 
 import com.google.common.base.Predicate;
 import com.google.common.reflect.TypeToken;
-
 
 /**
  * Represents a group of entities - sub-classes can support dynamically changing membership, 
@@ -48,6 +48,14 @@ public interface AbstractGroup extends Entity, Group, Changeable {
     @SuppressWarnings("serial")
     AttributeSensor<Collection<Entity>> GROUP_MEMBERS = Sensors.newSensor(
             new TypeToken<Collection<Entity>>() { }, "group.members", "Members of the group");
+
+    // FIXME should definitely remove this, it is ambiguous if an entity is in multiple clusters.  also should be "is_first" or something to indicate boolean.
+    AttributeSensor<Boolean> FIRST_MEMBER = Sensors.newBooleanSensor(
+            "cluster.first", "Set on an entity if it is the first member of a cluster");
+
+    // FIXME can we remove this too?
+    AttributeSensor<Entity> FIRST = Sensors.newSensor(Entity.class,
+            "cluster.first.entity", "The first member of the cluster");
 
     ConfigKey<Boolean> MEMBER_DELEGATE_CHILDREN = ConfigKeys.newBooleanConfigKey(
             "group.members.delegate", "Add delegate child entities for members of the group", Boolean.FALSE);

@@ -62,8 +62,8 @@ import com.google.common.util.concurrent.ListeningExecutorService;
  */
 public class HttpTestUtils {
 
-	// TODO Delete methods from TestUtils, to just have them here (or switch so TestUtils delegates here,
-	// and deprecate methods in TestUtils until deleted).
+    // TODO Delete methods from TestUtils, to just have them here (or switch so TestUtils delegates here,
+    // and deprecate methods in TestUtils until deleted).
 
     private static final Logger LOG = LoggerFactory.getLogger(HttpTestUtils.class);
 
@@ -331,7 +331,7 @@ public class HttpTestUtils {
             throw Throwables.propagate(e);
         }
     }
-    
+
     /**
      * Schedules (with the given executor) a poller that repeatedly accesses the given url, to confirm it always gives
      * back the expected status code.

@@ -1,22 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-    Licensed to the Apache Software Foundation (ASF) under one
-    or more contributor license agreements.  See the NOTICE file
-    distributed with this work for additional information
-    regarding copyright ownership.  The ASF licenses this file
-    to you under the Apache License, Version 2.0 (the
-    "License"); you may not use this file except in compliance
-    with the License.  You may obtain a copy of the License at
-    
-     http://www.apache.org/licenses/LICENSE-2.0
-    
-    Unless required by applicable law or agreed to in writing,
-    software distributed under the License is distributed on an
-    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-    KIND, either express or implied.  See the License for the
-    specific language governing permissions and limitations
-    under the License.
--->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
@@ -58,30 +40,36 @@
   -->
 
   <properties>
+    <project.entry>com.acme.sample.SampleMain</project.entry>
+
+    <!-- Compilation -->
+    <java.version>1.6</java.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-    <brooklyn.version>0.7.0-SNAPSHOT</brooklyn.version>  <!-- BROOKLYN_VERSION -->
-    <logback.version>1.0.7</logback.version>
-    <testng.version>6.3.1</testng.version>
-    <surefire.version>2.13</surefire.version>
-
+    <!-- Testing -->
+    <testng.version>6.8</testng.version>
+    <surefire.version>2.17</surefire.version>
     <includedTestGroups />
     <excludedTestGroups>Integration,Acceptance,Live,WIP</excludedTestGroups>
+
+    <!-- Dependencies -->
+    <brooklyn.version>0.7.0-SNAPSHOT</brooklyn.version>  <!-- BROOKLYN_VERSION -->
+    <logback.version>1.0.7</logback.version>
   </properties>
 
   <dependencies>
     <dependency>
       <!-- this pulls in all brooklyn entities and clouds; 
            you can cherry pick selected ones instead (for a smaller build) -->
-      <groupId>io.brooklyn</groupId>
+      <groupId>org.apache.brooklyn</groupId>
       <artifactId>brooklyn-all</artifactId>
       <version>${brooklyn.version}</version>
     </dependency>
 
     <dependency>
       <!-- includes testng and useful logging for tests -->
-      <groupId>io.brooklyn</groupId>
+      <groupId>org.apache.brooklyn</groupId>
       <artifactId>brooklyn-test-support</artifactId>
       <version>${brooklyn.version}</version>
       <scope>test</scope>
@@ -89,7 +77,7 @@
 
     <dependency>
       <!-- this gives us flexible and easy-to-use logging; just edit logback-custom.xml! -->
-      <groupId>io.brooklyn</groupId>
+      <groupId>org.apache.brooklyn</groupId>
       <artifactId>brooklyn-logback-xml</artifactId>
       <version>${brooklyn.version}</version>
       <!-- optional so that this project has logging; dependencies may redeclare or supply their own; 
@@ -113,6 +101,18 @@
         <enabled>true</enabled>
       </snapshots>
     </repository>
+    <!-- enable snapshots from apache -->
+    <repository>
+      <id>apache-nexus-snapshots</id>
+      <name>Apache Nexus Snapshots</name>
+      <url>https://repository.apache.org/content/repositories/snapshots</url>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+    </repository>
   </repositories>
 
   <build>
@@ -127,23 +127,23 @@
       <plugins>
         <plugin>
           <artifactId>maven-compiler-plugin</artifactId>
-          <version>2.3.2</version>
+          <version>3.1</version>
         </plugin>
         <plugin>
           <artifactId>maven-deploy-plugin</artifactId>
-          <version>2.5</version>
+          <version>2.8.2</version>
         </plugin>
         <plugin>
           <artifactId>maven-enforcer-plugin</artifactId>
-          <version>1.0</version>
+          <version>1.3.1</version>
         </plugin>
         <plugin>
           <artifactId>maven-failsafe-plugin</artifactId>
-          <version>2.9</version>
+          <version>2.17</version>
         </plugin>
         <plugin>
           <artifactId>maven-jar-plugin</artifactId>
-          <version>2.4</version>
+          <version>2.5</version>
         </plugin>
         <plugin>
           <groupId>org.apache.felix</groupId>
@@ -152,27 +152,31 @@
         </plugin>
         <plugin>
           <artifactId>maven-resources-plugin</artifactId>
-          <version>2.4.1</version>
+          <version>2.6</version>
         </plugin>
         <plugin>
           <artifactId>maven-source-plugin</artifactId>
-          <version>2.1.2</version>
+          <version>2.3</version>
         </plugin>
         <plugin>
           <artifactId>maven-javadoc-plugin</artifactId>
-          <version>2.8</version>
+          <version>2.9.1</version>
         </plugin>
         <plugin>
           <artifactId>maven-assembly-plugin</artifactId>
-          <version>2.2.2</version>
+          <version>2.4.1</version>
         </plugin>        
         <plugin>
           <artifactId>maven-eclipse-plugin</artifactId>
-          <version>2.8</version>
+          <version>2.9</version>
         </plugin>
         <plugin>
           <artifactId>maven-surefire-plugin</artifactId>
           <version>${surefire.version}</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-gpg-plugin</artifactId>
+          <version>1.5</version>
         </plugin>
       </plugins>
     </pluginManagement>
@@ -184,19 +188,19 @@
           <compilerId>groovy-eclipse-compiler</compilerId>
           <fork>true</fork>
           <verbose>false</verbose>
-          <source>1.6</source>
-          <target>1.6</target>
+          <source>${java.version}</source>
+          <target>${java.version}</target>
         </configuration>
         <dependencies>
           <dependency>
             <groupId>org.codehaus.groovy</groupId>
             <artifactId>groovy-eclipse-compiler</artifactId>
-            <version>2.6.0-01</version>
+            <version>2.9.0-01</version>
           </dependency>
           <dependency>
             <groupId>org.codehaus.groovy</groupId>
             <artifactId>groovy-eclipse-batch</artifactId>
-            <version>1.8.6-01</version>
+            <version>2.3.4-01</version>
           </dependency>
         </dependencies>
       </plugin>
@@ -222,7 +226,6 @@
       </plugin>
 
       <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jar-plugin</artifactId>
           <configuration>
               <archive>
@@ -232,7 +235,6 @@
       </plugin>
 
       <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-assembly-plugin</artifactId>
         <configuration>
           <descriptors>
@@ -359,9 +361,7 @@
           </plugin>
 
           <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-gpg-plugin</artifactId>
-            <version>1.1</version>
             <executions>
               <execution>
                 <id>sign-artifacts</id>

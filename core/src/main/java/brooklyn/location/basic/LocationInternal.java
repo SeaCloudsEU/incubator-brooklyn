@@ -24,7 +24,6 @@ import brooklyn.basic.BrooklynObjectInternal;
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.rebind.RebindSupport;
-import brooklyn.entity.rebind.Rebindable;
 import brooklyn.location.Location;
 import brooklyn.management.ManagementContext;
 import brooklyn.mementos.LocationMemento;
@@ -68,7 +67,13 @@ public interface LocationInternal extends BrooklynObjectInternal, Location {
 
     ConfigBag getAllConfigBag();
 
+    /**
+     * Users are strongly discouraged from calling or overriding this method.
+     * It is for internal calls only, relating to persisting/rebinding entities.
+     * This method may change (or be removed) in a future release without notice.
+     */
     @Override
+    @Beta
     RebindSupport<LocationMemento> getRebindSupport();
     
     ManagementContext getManagementContext();

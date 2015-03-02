@@ -39,8 +39,10 @@ import brooklyn.entity.basic.EntityInternal;
 import brooklyn.entity.basic.StartableApplication;
 import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.event.basic.Sensors;
+import brooklyn.management.ha.ManagementNodeState;
 import brooklyn.management.internal.LocalManagementContext;
 import brooklyn.util.javalang.UrlClassLoader;
+import brooklyn.util.os.Os;
 
 public class RebindCatalogEntityTest extends RebindTestFixture<StartableApplication> {
 
@@ -63,22 +65,25 @@ public class RebindCatalogEntityTest extends RebindTestFixture<StartableApplicat
     private URL url;
 
     @Override
+    protected boolean useEmptyCatalog() {
+        return true;
+    }
+
+    @Override
     protected StartableApplication createApp() {
         // do nothing here
         return null;
     }
     
     @BeforeMethod(alwaysRun=true)
+    @Override
     public void setUp() throws Exception {
         url = getClass().getClassLoader().getResource(JAR_PATH);
         assertNotNull(url, "Could not find on classpath: "+JAR_PATH);
         super.setUp();
     }
 
-    // TODO Fails with an NPE trying to use:
-    //      managementContext.getCatalog().addToClasspath(url.toString())
-    //      classLoader = origManagementContext.getCatalog().getRootClassLoader();
-    //      appClazz = (Class<? extends AbstractApplication>) classLoader.loadClass(APP_CLASSNAME);
+    // TODO Failed in jenkins (once on 20141104, with invocationCount=100): mysensor was null post-rebind.
     //
     // Note: to test before/after behaviour (i.e. that we're really fixing what we think we are) then comment out the body of:
     //       AbstractMemento.injectTypeClass(Class)
@@ -111,6 +116,7 @@ public class RebindCatalogEntityTest extends RebindTestFixture<StartableApplicat
     // TODO Not using RebindTestUtils.rebind(mementoDir, getClass().getClassLoader());
     //      because that won't have right catalog classpath.
     //      How to reuse that code cleanly?
+    @Override
     protected StartableApplication rebind() throws Exception {
         RebindTestUtils.waitForPersisted(origApp);
 
@@ -121,8 +127,8 @@ public class RebindCatalogEntityTest extends RebindTestFixture<StartableApplicat
         newManagementContext.getCatalog().addItem(appClazz);
         
         ClassLoader classLoader = newManagementContext.getCatalog().getRootClassLoader();
-        List<Application> newApps = newManagementContext.getRebindManager().rebind(classLoader);
-        newManagementContext.getRebindManager().start();
+        List<Application> newApps = newManagementContext.getRebindManager().rebind(classLoader, null, ManagementNodeState.MASTER);
+        newManagementContext.getRebindManager().startPersistence();
         return (StartableApplication) newApps.get(0);
     }
 

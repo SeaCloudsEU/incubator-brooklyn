@@ -29,6 +29,7 @@ import brooklyn.policy.PolicySpec;
 
 import com.google.common.base.Function;
 import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 
 public class CatalogPredicates {
 
@@ -56,20 +57,30 @@ public class CatalogPredicates {
         }
     };
 
+    @Deprecated
     public static <T,SpecT> Predicate<CatalogItem<T,SpecT>> name(final Predicate<? super String> filter) {
+        return displayName(filter);
+    }
+
+    public static <T,SpecT> Predicate<CatalogItem<T,SpecT>> displayName(final Predicate<? super String> filter) {
         return new Predicate<CatalogItem<T,SpecT>>() {
             @Override
             public boolean apply(@Nullable CatalogItem<T,SpecT> item) {
-                return (item != null) && filter.apply(item.getName());
+                return (item != null) && filter.apply(item.getDisplayName());
             }
         };
     }
 
-    public static <T,SpecT> Predicate<CatalogItem<T,SpecT>> registeredType(final Predicate<? super String> filter) {
+    @Deprecated
+    public static <T,SpecT> Predicate<CatalogItem<T,SpecT>> registeredTypeName(final Predicate<? super String> filter) {
+        return symbolicName(filter);
+    }
+
+    public static <T,SpecT> Predicate<CatalogItem<T,SpecT>> symbolicName(final Predicate<? super String> filter) {
         return new Predicate<CatalogItem<T,SpecT>>() {
             @Override
             public boolean apply(@Nullable CatalogItem<T,SpecT> item) {
-                return (item != null) && filter.apply(item.getRegisteredTypeName());
+                return (item != null) && filter.apply(item.getSymbolicName());
             }
         };
     }
@@ -88,6 +99,28 @@ public class CatalogPredicates {
             @Override
             public boolean apply(@Nullable CatalogItem<T,SpecT> item) {
                 return (item != null) && filter.apply(item.toXmlString());
+            }
+        };
+    }
+
+    /**
+     * Returns a predicate that matches the type of an application or entity. This is a string composed of the Java class
+     * name and the version separated by a colon.
+     *
+     * @param typeName The type
+     * @return The predicate
+     */
+    public static <T,SpecT> Predicate<CatalogItem<T,SpecT>> typeName(final String typeName) {
+        final int javaClassEnd = typeName.lastIndexOf(':');
+        final String javaClassName = typeName.substring(0, javaClassEnd);
+        final String version = typeName.substring(javaClassEnd + 1);
+        final Predicate<? super String> javaClassPredicate = Predicates.equalTo(javaClassName);
+        final Predicate<? super String> versionPredicate = Predicates.equalTo(version);
+
+        return new Predicate<CatalogItem<T,SpecT>>() {
+            @Override
+            public boolean apply(@Nullable CatalogItem<T,SpecT> item) {
+                return (item != null) && javaClassPredicate.apply(item.getJavaType()) && versionPredicate.apply(item.getVersion());
             }
         };
     }

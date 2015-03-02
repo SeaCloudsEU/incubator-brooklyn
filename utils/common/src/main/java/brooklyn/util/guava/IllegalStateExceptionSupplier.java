@@ -22,12 +22,14 @@ import com.google.common.base.Supplier;
 
 public class IllegalStateExceptionSupplier implements Supplier<RuntimeException> {
 
+    public static final IllegalStateExceptionSupplier EMPTY_EXCEPTION = new IllegalStateExceptionSupplier();
+    
     protected final String message;
     protected final Throwable cause;
     
     public IllegalStateExceptionSupplier() { this(null, null); }
     public IllegalStateExceptionSupplier(String message) { this(message, null); }
-    public IllegalStateExceptionSupplier(Throwable cause) { this(null, cause); }
+    public IllegalStateExceptionSupplier(Throwable cause) { this(cause!=null ? cause.getMessage() : null, cause); }
     public IllegalStateExceptionSupplier(String message, Throwable cause) { 
         this.message = message;
         this.cause = cause;

@@ -66,6 +66,7 @@ public abstract class BrooklynRestResourceTest extends BrooklynRestApiTest {
         super.tearDown();
     }
 
+
     protected ClientResponse clientDeploy(ApplicationSpec spec) {
         try {
             // dropwizard TestClient won't skip deserialization of trivial things like string and byte[] and inputstream
@@ -96,7 +97,7 @@ public abstract class BrooklynRestResourceTest extends BrooklynRestApiTest {
                         return status == Status.RUNNING;
                     }
                 })
-                .every(Duration.millis(100))
+                .backoffTo(Duration.ONE_SECOND)
                 .limitTimeTo(timeout)
                 .run();
         

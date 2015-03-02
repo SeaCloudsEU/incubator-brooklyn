@@ -67,9 +67,11 @@ import brooklyn.util.collections.MutableMap;
 import brooklyn.util.config.ConfigBag;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.task.DynamicTasks;
+import brooklyn.util.text.StringEscapes.JavaStringEscapes;
 import brooklyn.util.text.Strings;
 import brooklyn.util.text.TemplateProcessor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.net.HostAndPort;
@@ -96,7 +98,9 @@ public class CumulusRDFApplication extends AbstractApplication {
     public static final ConfigKey<Boolean> MULTI_REGION_FABRIC = ConfigKeys.newConfigKey(
         "cumulus.cassandra.fabric", "Deploy a multi-region Cassandra fabric", false);
 
-    public static final String DEFAULT_LOCATIONS = "aws-ec2:us-east-1,rackspace-cloudservers-uk";
+    // TODO Fails when given two locations
+    // public static final String DEFAULT_LOCATIONS = "[ jclouds:aws-ec2:us-east-1,jclouds:rackspace-cloudservers-uk ]";
+    public static final String DEFAULT_LOCATIONS = "jclouds:aws-ec2:us-east-1";
 
     private Effector<Void> cumulusConfig = Effectors.effector(Void.class, "cumulusConfig")
             .description("Configure the CumulusRDF web application")
@@ -147,7 +151,7 @@ public class CumulusRDFApplication extends AbstractApplication {
                 .configure(UsesJmx.JMX_AGENT_MODE, UsesJmx.JmxAgentModes.JMX_RMI_CUSTOM_AGENT)
                 .configure(UsesJmx.JMX_PORT, PortRanges.fromString("11099+"))
                 .configure(UsesJmx.RMI_REGISTRY_PORT, PortRanges.fromString("9001+"))
-                .configure(JavaWebAppService.ROOT_WAR, "classpath://cumulusrdf.war")
+                .configure(JavaWebAppService.ROOT_WAR, "https://cumulusrdf.googlecode.com/svn/wiki/downloads/cumulusrdf-1.0.1.war")
                 .configure(UsesJava.JAVA_SYSPROPS, MutableMap.of("cumulusrdf.config-file", "/tmp/cumulus.yaml")));
 
         // Add an effector to tomcat to reconfigure with a new YAML config file
@@ -220,12 +224,12 @@ public class CumulusRDFApplication extends AbstractApplication {
     public static void main(String[] argv) {
         List<String> args = Lists.newArrayList(argv);
         String port =  CommandLineUtil.getCommandLineOption(args, "--port", "8081+");
-        String location = CommandLineUtil.getCommandLineOption(args, "--location", DEFAULT_LOCATIONS);
+        String locations = CommandLineUtil.getCommandLineOption(args, "--locations", DEFAULT_LOCATIONS);
 
         BrooklynLauncher launcher = BrooklynLauncher.newInstance()
                 .application(EntitySpec.create(StartableApplication.class, CumulusRDFApplication.class).displayName("CumulusRDF application using Cassandra"))
                 .webconsolePort(port)
-                .location(location)
+                .locations(Strings.isBlank(locations) ? ImmutableList.<String>of() : JavaStringEscapes.unwrapJsonishListIfPossible(locations))
                 .start();
 
         Entities.dumpInfo(launcher.getApplications());

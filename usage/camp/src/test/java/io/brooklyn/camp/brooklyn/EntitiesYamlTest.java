@@ -20,6 +20,7 @@ package io.brooklyn.camp.brooklyn;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 import io.brooklyn.camp.brooklyn.spi.dsl.methods.BrooklynDslCommon;
 import io.brooklyn.camp.brooklyn.spi.dsl.methods.DslComponent;
@@ -43,6 +44,7 @@ import brooklyn.entity.Application;
 import brooklyn.entity.Effector;
 import brooklyn.entity.Entity;
 import brooklyn.entity.basic.Attributes;
+import brooklyn.entity.basic.BasicApplication;
 import brooklyn.entity.basic.BasicEntity;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.Entities;
@@ -58,8 +60,10 @@ import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.Sensors;
 import brooklyn.location.Location;
 import brooklyn.management.Task;
+import brooklyn.management.internal.EntityManagementUtils;
 import brooklyn.management.internal.EntityManagerInternal;
 import brooklyn.test.entity.TestEntity;
+import brooklyn.test.entity.TestEntityImpl;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.guava.Functionals;
@@ -599,6 +603,60 @@ public class EntitiesYamlTest extends AbstractYamlTest {
         TestEntity child = (TestEntity) entity.createAndManageChildFromConfig();
         assertEquals(child.getConfig(TestEntity.CONF_NAME), "inchildspec");
     }
+
+    @Test
+    public void testEntitySpecFlags() throws Exception {
+        String yaml =
+                "services:\n"+
+                "- serviceType: brooklyn.test.entity.TestEntity\n"+
+                "  confName: inParent\n"+
+                "  brooklyn.config:\n"+
+                "   test.childSpec:\n"+
+                "     $brooklyn:entitySpec:\n"+
+                "       type: brooklyn.test.entity.TestEntity\n"+
+                "       confName: inchildspec\n";
+        
+        Application app = (Application) createStartWaitAndLogApplication(new StringReader(yaml));
+        TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
+        
+        TestEntity child = (TestEntity) entity.createAndManageChildFromConfig();
+        assertEquals(child.getConfig(TestEntity.CONF_NAME), "inchildspec");
+    }
+
+    @Test
+    public void testEntitySpecWithChildren() throws Exception {
+        String yaml =
+                "services:\n"+
+                "- serviceType: brooklyn.test.entity.TestEntity\n"+
+                "  brooklyn.config:\n"+
+                "   test.childSpec:\n"+
+                "     $brooklyn:entitySpec:\n"+
+                "       type: brooklyn.test.entity.TestEntity\n"+
+                "       brooklyn.config:\n"+
+                "         test.confName: child\n"+
+                "       brooklyn.children:\n"+
+                "       - type: brooklyn.test.entity.TestEntity\n" +
+                "         brooklyn.config:\n" +
+                "           test.confName: grandchild\n" +
+                "         brooklyn.children:\n"+
+                "         - type: brooklyn.test.entity.TestEntity\n" +
+                "           brooklyn.config:\n" +
+                "             test.confName: greatgrandchild\n";
+        
+        Application app = (Application) createStartWaitAndLogApplication(new StringReader(yaml));
+        TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
+        
+        TestEntity child = (TestEntity) entity.createAndManageChildFromConfig();
+        assertEquals(child.getConfig(TestEntity.CONF_NAME), "child");
+        assertEquals(child.getChildren().size(), 1, "Child entity should have exactly one child of its own");
+
+        TestEntity grandchild = (TestEntity) Iterables.getOnlyElement(child.getChildren());
+        assertEquals(grandchild.getConfig(TestEntity.CONF_NAME), "grandchild");
+        assertEquals(grandchild.getChildren().size(), 1, "Grandchild entity should have exactly one child of its own");
+
+        TestEntity greatgrandchild = (TestEntity) Iterables.getOnlyElement(grandchild.getChildren());
+        assertEquals(greatgrandchild.getConfig(TestEntity.CONF_NAME), "greatgrandchild");
+    }
     
     @Test
     public void testNestedEntitySpecConfigs() throws Exception {
@@ -736,6 +794,62 @@ public class EntitiesYamlTest extends AbstractYamlTest {
         Task<String> saying = entity.invoke(Effectors.effector(String.class, TestSensorAndEffectorInitializer.EFFECTOR_SAY_HELLO).buildAbstract(), 
             MutableMap.of("name", "Bob"));
         Assert.assertEquals(saying.get(Duration.TEN_SECONDS), "Hey Bob");
+    }
+
+    @Test
+    public void testEntityTypeAsImpl() throws Exception {
+        String yaml =
+                "services:"+"\n"+
+                "- type: "+CustomTestEntityImpl.class.getName()+"\n";
+
+        Entity app = createStartWaitAndLogApplication(new StringReader(yaml));
+
+        Entity testEntity = Iterables.getOnlyElement(app.getChildren());
+        assertEquals(testEntity.getEntityType().getName(), "CustomTestEntityImpl");
+    }
+    
+    public static class CustomTestEntityImpl extends TestEntityImpl {
+        public CustomTestEntityImpl() {
+            System.out.println("in CustomTestEntityImpl");
+        }
+        @Override
+        protected String getEntityTypeName() {
+            return "CustomTestEntityImpl";
+        }
+    }
+
+    @Test
+    public void testWrapperAppMarkerExists() throws Exception {
+        Entity entity = createAndStartApplication(
+                "services:",
+                "- type: " + BasicEntity.class.getName());
+        assertTrue(entity.getConfig(EntityManagementUtils.WRAPPER_APP_MARKER));
+    }
+
+    @Test
+    public void testWrapperAppMarkerDoesntExist() throws Exception {
+        Entity entity = createAndStartApplication(
+                "services:",
+                "- type: " + BasicApplication.class.getName());
+        assertNull(entity.getConfig(EntityManagementUtils.WRAPPER_APP_MARKER));
+    }
+
+    @Test
+    public void testWrapperAppMarkerForced() throws Exception {
+        Entity entity = createAndStartApplication(
+                "wrappedApp: true",
+                "services:",
+                "- type: " + BasicApplication.class.getName());
+        assertTrue(entity.getConfig(EntityManagementUtils.WRAPPER_APP_MARKER));
+    }
+
+    @Test
+    public void testWrapperAppMarkerUnforced() throws Exception {
+        Entity entity = createAndStartApplication(
+                "wrappedApp: false",
+                "services:",
+                "- type: " + BasicApplication.class.getName());
+        assertNull(entity.getConfig(EntityManagementUtils.WRAPPER_APP_MARKER));
     }
 
     @Override

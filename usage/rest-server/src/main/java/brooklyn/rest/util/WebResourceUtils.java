@@ -24,15 +24,15 @@ import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
+import org.codehaus.jackson.map.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.ImmutableMap;
-
 import brooklyn.rest.domain.ApiError;
-import brooklyn.util.collections.Jsonya;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.text.StringEscapes.JavaStringEscapes;
+
+import com.google.common.collect.ImmutableMap;
 
 public class WebResourceUtils {
 
@@ -95,20 +95,30 @@ public class WebResourceUtils {
         }
     }
 
-    /** returns an object which jersey will handle nicely, converting to json,
-     * sometimes wrapping in quotes if needed (for outermost json return types) */ 
+    /** as {@link #getValueForDisplay(ObjectMapper, Object, boolean, boolean)} with no mapper
+     * (so will only handle a subset of types) */
     public static Object getValueForDisplay(Object value, boolean preferJson, boolean isJerseyReturnValue) {
-        
+        return getValueForDisplay(null, value, preferJson, isJerseyReturnValue);
+    }
+    
+    /** returns an object which jersey will handle nicely, converting to json,
+     * sometimes wrapping in quotes if needed (for outermost json return types);
+     * if json is not preferred, this simply applies a toString-style rendering */ 
+    public static Object getValueForDisplay(ObjectMapper mapper, Object value, boolean preferJson, boolean isJerseyReturnValue) {
         if (preferJson) {
             if (value==null) return null;
-            Object result = Jsonya.convertToJsonPrimitive(value);
+            Object result = value;
+            // no serialization checks required, with new smart-mapper which does toString
+            // (note there is more sophisticated logic in git history however)
+            result = value;
             
             if (isJerseyReturnValue) {
-                if (result instanceof String)
+                if (result instanceof String) {
                     // Jersey does not do json encoding if the return type is a string,
                     // expecting the returner to do the json encoding himself
                     // cf discussion at https://github.com/dropwizard/dropwizard/issues/231
                     result = JavaStringEscapes.wrapJavaString((String)result);
+                }
             }
             
             return result;

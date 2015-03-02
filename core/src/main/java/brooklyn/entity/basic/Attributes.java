@@ -18,9 +18,11 @@
  */
 package brooklyn.entity.basic;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
+import brooklyn.config.render.RendererHints;
 import brooklyn.event.AttributeSensor;
 import brooklyn.event.Sensor;
 import brooklyn.event.basic.BasicAttributeSensor;
@@ -28,8 +30,10 @@ import brooklyn.event.basic.BasicAttributeSensorAndConfigKey;
 import brooklyn.event.basic.BasicNotificationSensor;
 import brooklyn.event.basic.PortAttributeSensorAndConfigKey;
 import brooklyn.event.basic.Sensors;
+import brooklyn.management.ManagementContext;
 import brooklyn.util.net.UserAndHostAndPort;
 
+import com.google.common.annotations.Beta;
 import com.google.common.collect.ImmutableList;
 import com.google.common.reflect.TypeToken;
 
@@ -48,7 +52,6 @@ public interface Attributes {
     @SuppressWarnings({ "unchecked", "rawtypes" })
     BasicAttributeSensorAndConfigKey<Map<String,String>> DOWNLOAD_ADDON_URLS = new BasicAttributeSensorAndConfigKey(
             Map.class, "download.addon.urls", "URL patterns for downloading named add-ons (will substitute things like ${version} automatically)");
-
 
     /*
      * Port number attributes.
@@ -84,7 +87,7 @@ public interface Attributes {
             "host.sshAddress", 
             "user@host:port for ssh'ing (or null if inappropriate)");
     AttributeSensor<String> SUBNET_HOSTNAME = Sensors.newStringSensor( "host.subnet.hostname", "Host name as known internally in " +
-    		"the subnet where it is running (if different to host.name)");
+            "the subnet where it is running (if different to host.name)");
     AttributeSensor<String> SUBNET_ADDRESS = Sensors.newStringSensor( "host.subnet.address", "Host address as known internally in " +
             "the subnet where it is running (if different to host.name)");
 
@@ -122,6 +125,30 @@ public interface Attributes {
     
     AttributeSensor<Integer> PID = Sensors.newIntegerSensor("pid", "Process ID for the previously launched instance");
 
-    AttributeSensor<String> LOG_FILE_LOCATION = new BasicAttributeSensor<String>(
-            String.class, "log.location", "Log file location");
+    AttributeSensor<String> LOG_FILE_LOCATION = Sensors.newStringSensor("log.location", "Log file location");
+    
+    AttributeSensor<URI> MAIN_URI = MainUri.MAIN_URI;
+
+ // this class is added because the MAIN_URI relies on a static initialization which unfortunately can't be added to an interface.
+    class MainUri {
+        private final static AttributeSensor<URI> MAIN_URI = Sensors.newSensor(URI.class, "main.uri", "Main URI for contacting the service/endpoint offered by this entity");
+
+        static {
+            RendererHints.register(MAIN_URI, RendererHints.namedActionWithUrl());
+        }
+    }
+
+    /*
+     * Brooklyn management attributes (optional)
+     */
+
+    /**
+     * Used by entities registering a {@link ManagementContext.PropertiesReloadListener} to store a persistent
+     * reference to it, for use when unregistering the listener.
+     */
+    @Beta
+    AttributeSensor<ManagementContext.PropertiesReloadListener> PROPERTIES_RELOAD_LISTENER = Sensors.newSensor(
+            ManagementContext.PropertiesReloadListener.class,
+            "brooklyn.management.propertiesReloadListener", "Properties reload listener");
+
 }

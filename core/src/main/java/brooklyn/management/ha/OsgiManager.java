@@ -21,6 +21,7 @@ package brooklyn.management.ha;
 import java.io.File;
 import java.net.URL;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 import org.osgi.framework.Bundle;
@@ -29,15 +30,22 @@ import org.osgi.framework.launch.Framework;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.catalog.CatalogItem.CatalogBundle;
 import brooklyn.config.BrooklynServerConfig;
+import brooklyn.config.BrooklynServerPaths;
 import brooklyn.config.ConfigKey;
+import brooklyn.management.ManagementContext;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.guava.Maybe;
 import brooklyn.util.os.Os;
+import brooklyn.util.os.Os.DeletionResult;
 import brooklyn.util.osgi.Osgis;
+import brooklyn.util.osgi.Osgis.BundleFinder;
+import brooklyn.util.osgi.Osgis.VersionedName;
 
 import com.google.common.base.Throwables;
+import com.google.common.collect.Iterables;
 
 public class OsgiManager {
 
@@ -47,17 +55,24 @@ public class OsgiManager {
     
     /* see Osgis for info on starting framework etc */
     
+    protected ManagementContext mgmt;
     protected Framework framework;
-    protected File osgiTempDir;
-    protected Map<String,String> bundleUrlToNameVersionString = MutableMap.of();
-    
+    protected File osgiCacheDir;
+
+    // we could manage without this map but it is useful to validate what is a user-supplied url
+    protected Map<String,VersionedName> urlToBundleIdentifier = MutableMap.of();
+
+
+    public OsgiManager(ManagementContext mgmt) {
+        this.mgmt = mgmt;
+    }
+
     public void start() {
         try {
-            // TODO any extra startup args?
-            // TODO dir to come from brooklyn properties;
-            // note dir must be different for each if starting multiple instances
-            osgiTempDir = Os.newTempDir("brooklyn-osgi-cache");
-            framework = Osgis.newFrameworkStarted(osgiTempDir.getAbsolutePath(), false, MutableMap.of());
+            osgiCacheDir = BrooklynServerPaths.getOsgiCacheDirCleanedIfNeeded(mgmt);
+            
+            // any extra OSGi startup args could go here
+            framework = Osgis.newFrameworkStarted(osgiCacheDir.getAbsolutePath(), false, MutableMap.of());
             
         } catch (Exception e) {
             throw Exceptions.propagate(e);
@@ -75,41 +90,101 @@ public class OsgiManager {
         } catch (InterruptedException e) {
             throw Exceptions.propagate(e);
         }
-        osgiTempDir = Os.deleteRecursively(osgiTempDir).asNullOrThrowing();
+        if (BrooklynServerPaths.isOsgiCacheForCleaning(mgmt, osgiCacheDir)) {
+            DeletionResult deleteRecursively = Os.deleteRecursively(osgiCacheDir);
+            if (deleteRecursively.getThrowable()!=null) {
+                log.debug("Unable to delete "+osgiCacheDir+" (possibly already deleted?): "+deleteRecursively.getThrowable());
+            }
+        }
+        osgiCacheDir = null;
         framework = null;
     }
 
-    public void registerBundle(String bundleUrl) {
+    public synchronized void registerBundle(CatalogBundle bundle) {
         try {
-            String nv = bundleUrlToNameVersionString.get(bundleUrl);
-            if (nv!=null) {
-                if (Osgis.getBundle(framework, nv).isPresent()) {
-                    log.debug("Bundle from "+bundleUrl+" already installed as "+nv+"; not re-registering");
-                    return;
-                }
+            if (checkBundleInstalledThrowIfInconsistent(bundle)) {
+                return;
             }
-            Bundle b = Osgis.install(framework, bundleUrl);
-            log.debug("Bundle from "+bundleUrl+" successfully installed as "+nv);
-            bundleUrlToNameVersionString.put(bundleUrl, b.getSymbolicName()+":"+b.getVersion().toString());
+
+            Bundle b = Osgis.install(framework, bundle.getUrl());
+
+            checkCorrectlyInstalled(bundle, b);
+
+            urlToBundleIdentifier.put(bundle.getUrl(), new VersionedName(b));
         } catch (BundleException e) {
-            log.debug("Bundle from "+bundleUrl+" failed to install (rethrowing): "+e);
+            log.debug("Bundle from "+bundle+" failed to install (rethrowing): "+e);
             throw Throwables.propagate(e);
         }
     }
 
-    public <T> Maybe<Class<T>> tryResolveClass(String type, String... bundleUrlsOrNameVersionString) {
-        return tryResolveClass(type, Arrays.asList(bundleUrlsOrNameVersionString));
-    }
-    public <T> Maybe<Class<T>> tryResolveClass(String type, Iterable<String> bundleUrlsOrNameVersionString) {
-        Map<String,Throwable> bundleProblems = MutableMap.of();
-        for (String bundleUrlOrNameVersionString: bundleUrlsOrNameVersionString) {
-            try {
-                String bundleNameVersion = bundleUrlToNameVersionString.get(bundleUrlOrNameVersionString);
-                if (bundleNameVersion==null) {
-                    bundleNameVersion = bundleUrlOrNameVersionString;
-                }
+    private void checkCorrectlyInstalled(CatalogBundle bundle, Bundle b) {
+        String nv = b.getSymbolicName()+":"+b.getVersion().toString();
 
-                Maybe<Bundle> bundle = Osgis.getBundle(framework, bundleNameVersion);
+        if (bundle.isNamed() &&
+                (!bundle.getSymbolicName().equals(b.getSymbolicName()) ||
+                !bundle.getVersion().equals(b.getVersion().toString()))) {
+            log.warn("Bundle at " + bundle.getUrl() + " installed as " + nv +
+                    " but user explicitly requested " + bundle.getSymbolicName() + ":" + bundle.getVersion());
+        }
+
+        List<Bundle> matches = Osgis.bundleFinder(framework)
+                .symbolicName(b.getSymbolicName())
+                .version(b.getVersion().toString())
+                .findAll();
+        if (matches.isEmpty()) {
+            log.error("OSGi could not find bundle "+nv+" in search after installing it from "+bundle.getUrl());
+        } else if (matches.size()==1) {
+            log.debug("Bundle from "+bundle.getUrl()+" successfully installed as " + nv + " ("+b+")");
+        } else {
+            log.warn("OSGi has multiple bundles matching "+nv+", when just installed from "+bundle.getUrl()+": "+matches+"; "
+                + "brooklyn will prefer the URL-based bundle for top-level references but any dependencies or "
+                + "import-packages will be at the mercy of OSGi. "
+                + "It is recommended to use distinct versions for different bundles, and the same URL for the same bundles.");
+        }
+    }
+
+    private boolean checkBundleInstalledThrowIfInconsistent(CatalogBundle bundle) {
+        String bundleUrl = bundle.getUrl();
+        if (bundleUrl != null) {
+            VersionedName nv = urlToBundleIdentifier.get(bundleUrl);
+            if (nv!=null) {
+                if (bundle.isNamed() && !nv.equals(bundle.getSymbolicName(), bundle.getVersion())) {
+                    throw new IllegalStateException("Bundle from "+bundleUrl+" already installed as "+nv+" but user explicitly requested "+bundle);
+                }
+                Maybe<Bundle> installedBundle = Osgis.bundleFinder(framework).requiringFromUrl(bundleUrl).find();
+                if (installedBundle.isPresent()) {
+                    if (bundle.isNamed()) {
+                        Bundle b = installedBundle.get();
+                        if (!nv.equals(b.getSymbolicName(), b.getVersion().toString())) {
+                            log.error("Bundle from "+bundleUrl+" already installed as "+nv+" but reports "+b.getSymbolicName()+":"+b.getVersion());
+                        }
+                    }
+                    log.trace("Bundle from "+bundleUrl+" already installed as "+nv+"; not re-registering");
+                    return true;
+                } else {
+                    log.error("Bundle "+nv+" from "+bundleUrl+" is known in map but not installed; perhaps in the process of installing?");
+                }
+            }
+        } else {
+            Maybe<Bundle> installedBundle = Osgis.bundleFinder(framework).symbolicName(bundle.getSymbolicName()).version(bundle.getVersion()).find();
+            if (installedBundle.isPresent()) {
+                log.trace("Bundle "+bundle+" installed from "+installedBundle.get().getLocation());
+            } else {
+                throw new IllegalStateException("Bundle "+bundle+" not previously registered, but URL is empty.");
+            }
+            return true;
+        }
+        return false;
+    }
+
+    public <T> Maybe<Class<T>> tryResolveClass(String type, CatalogBundle... catalogBundles) {
+        return tryResolveClass(type, Arrays.asList(catalogBundles));
+    }
+    public <T> Maybe<Class<T>> tryResolveClass(String type, Iterable<CatalogBundle> catalogBundles) {
+        Map<CatalogBundle,Throwable> bundleProblems = MutableMap.of();
+        for (CatalogBundle catalogBundle: catalogBundles) {
+            try {
+                Maybe<Bundle> bundle = findBundle(catalogBundle);
                 if (bundle.isPresent()) {
                     Bundle b = bundle.get();
                     Class<T> clazz;
@@ -126,31 +201,54 @@ public class OsgiManager {
                     }
                     return Maybe.of(clazz);
                 } else {
-                    bundleProblems.put(bundleUrlOrNameVersionString, new IllegalStateException("Unable to find bundle "+bundleUrlOrNameVersionString));
+                    bundleProblems.put(catalogBundle, ((Maybe.Absent<?>)bundle).getException());
                 }
+                
             } catch (Exception e) {
+                // should come from classloading now; name formatting or missing bundle errors will be caught above 
                 Exceptions.propagateIfFatal(e);
-                bundleProblems.put(bundleUrlOrNameVersionString, e);
+                bundleProblems.put(catalogBundle, e);
 
                 Throwable cause = e.getCause();
                 if (cause != null && cause.getMessage().contains("Unresolved constraint in bundle")) {
-                    log.warn("Unresolved constraint resolving OSGi bundle "+bundleUrlOrNameVersionString+" to load "+type+": "+cause.getMessage());
+                    log.warn("Unresolved constraint resolving OSGi bundle "+catalogBundle+" to load "+type+": "+cause.getMessage());
                     if (log.isDebugEnabled()) log.debug("Trace for OSGi resolution failure", e);
                 }
             }
         }
-        return Maybe.absent("Unable to resolve class "+type+": "+bundleProblems);
+        if (bundleProblems.size()==1) {
+            Throwable error = Iterables.getOnlyElement(bundleProblems.values());
+            if (error instanceof ClassNotFoundException && error.getCause()!=null && error.getCause().getMessage()!=null) {
+                error = Exceptions.collapseIncludingAllCausalMessages(error);
+            }
+            return Maybe.absent("Unable to resolve class "+type+" in "+Iterables.getOnlyElement(bundleProblems.keySet()), error);
+        } else {
+            return Maybe.absent(Exceptions.create("Unable to resolve class "+type+": "+bundleProblems, bundleProblems.values()));
+        }
     }
 
-    public URL getResource(String name, Iterable<String> bundleUrlsOrNameVersionString) {
-        for (String bundleUrlOrNameVersionString: bundleUrlsOrNameVersionString) {
+    public Maybe<Bundle> findBundle(CatalogBundle catalogBundle) {
+        //Either fail at install time when the user supplied name:version is different
+        //from the one reported from the bundle
+        //or
+        //Ignore user supplied name:version when URL is supplied to be able to find the
+        //bundle even if it's with a different version.
+        //
+        //For now we just log a warning if there's a version discrepancy at install time,
+        //so prefer URL if supplied.
+        BundleFinder bundleFinder = Osgis.bundleFinder(framework);
+        if (catalogBundle.getUrl() != null) {
+            bundleFinder.requiringFromUrl(catalogBundle.getUrl());
+        } else {
+            bundleFinder.symbolicName(catalogBundle.getSymbolicName()).version(catalogBundle.getVersion());
+        }
+        return bundleFinder.find();
+    }
+
+    public URL getResource(String name, Iterable<CatalogBundle> catalogBundles) {
+        for (CatalogBundle catalogBundle: catalogBundles) {
             try {
-                String bundleNameVersion = bundleUrlToNameVersionString.get(bundleUrlOrNameVersionString);
-                if (bundleNameVersion==null) {
-                    bundleNameVersion = bundleUrlOrNameVersionString;
-                }
-                
-                Maybe<Bundle> bundle = Osgis.getBundle(framework, bundleNameVersion);
+                Maybe<Bundle> bundle = findBundle(catalogBundle);
                 if (bundle.isPresent()) {
                     URL result = bundle.get().getResource(name);
                     if (result!=null) return result;
@@ -162,4 +260,8 @@ public class OsgiManager {
         return null;
     }
 
+    public Framework getFramework() {
+        return framework;
+    }
+    
 }

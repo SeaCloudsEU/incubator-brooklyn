@@ -26,10 +26,13 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.enricher.Enrichers;
 import brooklyn.entity.Entity;
 import brooklyn.entity.Group;
 import brooklyn.entity.annotation.Effector;
+import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.Lifecycle;
+import brooklyn.entity.basic.ServiceStateLogic.ServiceNotUpLogic;
 import brooklyn.entity.group.AbstractMembershipTrackingPolicy;
 import brooklyn.entity.proxy.AbstractControllerImpl;
 import brooklyn.entity.proxy.ProxySslConfig;
@@ -41,6 +44,7 @@ import brooklyn.event.feed.http.HttpPollConfig;
 import brooklyn.policy.PolicySpec;
 import brooklyn.util.ResourceUtils;
 import brooklyn.util.file.ArchiveUtils;
+import brooklyn.util.guava.Functionals;
 import brooklyn.util.http.HttpToolResponse;
 import brooklyn.util.stream.Streams;
 import brooklyn.util.text.Strings;
@@ -60,7 +64,7 @@ public class NginxControllerImpl extends AbstractControllerImpl implements Nginx
 
     private volatile HttpFeed httpFeed;
     private final Set<String> installedKeysCache = Sets.newLinkedHashSet();
-    private UrlMappingsMemberTrackerPolicy urlMappingsMemberTrackerPolicy;
+    protected UrlMappingsMemberTrackerPolicy urlMappingsMemberTrackerPolicy;
 
     @Override
     public void reload() {
@@ -91,7 +95,7 @@ public class NginxControllerImpl extends AbstractControllerImpl implements Nginx
                 .period(getConfig(HTTP_POLL_PERIOD))
                 .baseUri(accessibleRootUrl)
                 .baseUriVars(ImmutableMap.of("include-runtime", "true"))
-                .poll(new HttpPollConfig<Boolean>(SERVICE_UP)
+                .poll(new HttpPollConfig<Boolean>(NGINX_URL_ANSWERS_NICELY)
                         // Any response from Nginx is good.
                         .checkSuccess(Predicates.alwaysTrue())
                         .onResult(new Function<HttpToolResponse, Boolean>() {
@@ -104,6 +108,17 @@ public class NginxControllerImpl extends AbstractControllerImpl implements Nginx
                                 }})
                         .setOnException(false))
                 .build();
+        
+        if (!Lifecycle.RUNNING.equals(getAttribute(SERVICE_STATE_ACTUAL))) {
+            // TODO when updating the map, if it would change from empty to empty on a successful run
+            // gate with the above check to prevent flashing on ON_FIRE during rebind (this is invoked on rebind as well as during start)
+            ServiceNotUpLogic.updateNotUpIndicator(this, NGINX_URL_ANSWERS_NICELY, "No response from nginx yet");
+        }
+        addEnricher(Enrichers.builder().updatingMap(Attributes.SERVICE_NOT_UP_INDICATORS)
+            .from(NGINX_URL_ANSWERS_NICELY)
+            .computing(Functionals.ifNotEquals(true).value("URL where nginx listens is not answering correctly (with expected header)") )
+            .build());
+        connectServiceUpIsRunning();
 
         // Can guarantee that parent/managementContext has been set
         Group urlMappings = getConfig(URL_MAPPINGS);
@@ -142,15 +157,16 @@ public class NginxControllerImpl extends AbstractControllerImpl implements Nginx
     }
     
     @Override
-    protected void doStop() {
+    protected void postStop() {
         // TODO don't want stop to race with the last poll.
-        super.doStop();
+        super.postStop();
         setAttribute(SERVICE_UP, false);
     }
 
     @Override
     protected void disconnectSensors() {
         if (httpFeed != null) httpFeed.stop();
+        disconnectServiceUpIsRunning();
         super.disconnectSensors();
     }
 

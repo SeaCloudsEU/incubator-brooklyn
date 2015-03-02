@@ -21,7 +21,6 @@ package brooklyn.entity.webapp;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,7 +33,6 @@ import brooklyn.entity.basic.DynamicGroupImpl;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityPredicates;
 import brooklyn.entity.basic.Lifecycle;
-import brooklyn.entity.basic.QuorumCheck;
 import brooklyn.entity.basic.QuorumCheck.QuorumChecks;
 import brooklyn.entity.basic.ServiceStateLogic;
 import brooklyn.entity.proxy.LoadBalancer;
@@ -145,6 +143,7 @@ public class ControlledDynamicWebAppClusterImpl extends DynamicGroupImpl impleme
             setConfig(UP_QUORUM_CHECK, QuorumChecks.newInstance(2, 1.0, false));
         }
         super.initEnrichers();
+        ServiceStateLogic.newEnricherFromChildrenUp().checkChildrenOnly().requireUpChildren(getConfig(UP_QUORUM_CHECK)).addTo(this);
     }
     
     @Override
@@ -252,12 +251,12 @@ public class ControlledDynamicWebAppClusterImpl extends DynamicGroupImpl impleme
     void connectSensors() {
         // FIXME no longer needed
         addEnricher(Enrichers.builder()
-                .propagatingAllButUsualAnd(ROOT_URL, GROUP_MEMBERS, GROUP_SIZE)
+                .propagatingAllButUsualAnd(Attributes.MAIN_URI, ROOT_URL, GROUP_MEMBERS, GROUP_SIZE)
                 .from(getCluster())
                 .build());
         addEnricher(Enrichers.builder()
                 // include hostname and address of controller (need both in case hostname only resolves to internal/private ip)
-                .propagating(LoadBalancer.HOSTNAME, Attributes.ADDRESS, ROOT_URL)
+                .propagating(LoadBalancer.HOSTNAME, Attributes.ADDRESS, Attributes.MAIN_URI, ROOT_URL)
                 .from(getController())
                 .build());
     }

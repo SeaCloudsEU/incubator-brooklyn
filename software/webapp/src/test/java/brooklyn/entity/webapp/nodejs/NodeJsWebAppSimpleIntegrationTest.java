@@ -25,17 +25,14 @@ import java.net.ServerSocket;
 import java.util.Iterator;
 
 import org.jclouds.util.Throwables2;
-import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import brooklyn.entity.basic.Entities;
+import brooklyn.entity.BrooklynAppLiveTestSupport;
 import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.location.LocationSpec;
 import brooklyn.location.PortRange;
 import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
 import brooklyn.location.basic.PortRanges;
-import brooklyn.test.entity.TestApplication;
 import brooklyn.util.net.Networking;
 
 import com.google.common.collect.ImmutableList;
@@ -43,12 +40,10 @@ import com.google.common.collect.ImmutableList;
 /**
  * This tests the operation of the {@link NodeJsWebAppService} entity.
  */
-public class NodeJsWebAppSimpleIntegrationTest {
+public class NodeJsWebAppSimpleIntegrationTest extends BrooklynAppLiveTestSupport {
 
     private static PortRange DEFAULT_PORT_RANGE = PortRanges.fromString("3000-3099");
 
-    private TestApplication app;
-    private NodeJsWebAppService nodejs;
     private int httpPort;
 
     @BeforeMethod(alwaysRun=true)
@@ -63,24 +58,19 @@ public class NodeJsWebAppSimpleIntegrationTest {
         fail("someone is already listening on ports "+DEFAULT_PORT_RANGE+"; tests assume that port is free on localhost");
     }
 
-    @AfterMethod(alwaysRun=true)
-    public void tearDown() throws Exception {
-        if (app != null) Entities.destroyAll(app.getManagementContext());
-    }
-
     @Test(groups="Integration")
     public void detectFailureIfNodeJsBindToPort() throws Exception {
         ServerSocket listener = new ServerSocket(httpPort);
         try {
-            app = TestApplication.Factory.newManagedInstanceForTests();
-            nodejs = app.createAndManageChild(EntitySpec.create(NodeJsWebAppService.class).configure("httpPort", httpPort));
+            LocalhostMachineProvisioningLocation loc = app.newLocalhostProvisioningLocation();
+            NodeJsWebAppService nodejs = app.createAndManageChild(EntitySpec.create(NodeJsWebAppService.class).configure("httpPort", httpPort));
             try {
-                nodejs.start(ImmutableList.of(app.getManagementContext().getLocationManager().createLocation(LocationSpec.create(LocalhostMachineProvisioningLocation.class))));
+                nodejs.start(ImmutableList.of(loc));
                 fail("Should have thrown start-exception");
             } catch (Exception e) {
                 // LocalhostMachineProvisioningLocation does NetworkUtils.isPortAvailable, so get -1
                 IllegalArgumentException iae = Throwables2.getFirstThrowableOfType(e, IllegalArgumentException.class);
-                if (iae == null || iae.getMessage() == null || !iae.getMessage().equals("port for httpPort is null")) throw e;
+                if (iae == null || iae.getMessage() == null || !iae.getMessage().equals("port for http is null")) throw e;
             } finally {
                 nodejs.stop();
             }

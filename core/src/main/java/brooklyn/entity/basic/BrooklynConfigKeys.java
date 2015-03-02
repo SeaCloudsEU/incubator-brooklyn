@@ -55,6 +55,7 @@ public class BrooklynConfigKeys {
             "this should include something readable, and must include a hash of all data which differentiates an installation " +
             "(e.g. version, plugins, etc), but should be the same where install dirs can be shared to allow for re-use");
 
+    public static final ConfigKey<Boolean> ENTITY_STARTED = newBooleanConfigKey("entity.started", "Skip the startup process entirely, for running services", Boolean.FALSE);
     public static final ConfigKey<Boolean> SKIP_INSTALLATION = newBooleanConfigKey("install.skip", "Skip the driver install commands entirely, for pre-installed software", Boolean.FALSE);
 
     // The implementation in AbstractSoftwareSshDriver runs this command as an SSH command 
@@ -106,16 +107,18 @@ public class BrooklynConfigKeys {
     /** @deprecated since 0.7.0; use {@link #RUN_DIR} */
     public static final ConfigKey<String> SUGGESTED_RUN_DIR = RUN_DIR.getConfigKey();
 
-    /**
-     * Intention is to use this with DependentConfiguration.attributeWhenReady, to allow an entity's start
+    /*
+     * Intention is to use these with DependentConfiguration.attributeWhenReady, to allow an entity's start
      * to block until dependents are ready. This is particularly useful when we want to block until a dependent
      * component is up, but this entity does not care about the dependent component's actual config values.
      */
+
     public static final ConfigKey<Boolean> START_LATCH = newBooleanConfigKey("start.latch", "Latch for blocking start until ready");
     public static final ConfigKey<Boolean> SETUP_LATCH = newBooleanConfigKey("setup.latch", "Latch for blocking setup until ready");
+    public static final ConfigKey<Boolean> INSTALL_RESOURCES_LATCH = newBooleanConfigKey("resources.install.latch", "Latch for blocking install resources until ready");
     public static final ConfigKey<Boolean> INSTALL_LATCH = newBooleanConfigKey("install.latch", "Latch for blocking install until ready");
+    public static final ConfigKey<Boolean> RUNTIME_RESOURCES_LATCH = newBooleanConfigKey("resources.runtime.latch", "Latch for blocking runtime resources until ready");
     public static final ConfigKey<Boolean> CUSTOMIZE_LATCH = newBooleanConfigKey("customize.latch", "Latch for blocking customize until ready");
-    public static final ConfigKey<Boolean> RESOURCES_LATCH = newBooleanConfigKey("resources.latch", "Latch for blocking resources until ready");
     public static final ConfigKey<Boolean> LAUNCH_LATCH = newBooleanConfigKey("launch.latch", "Latch for blocking launch until ready");
 
     public static final ConfigKey<Duration> START_TIMEOUT = newConfigKey(
