@@ -28,6 +28,8 @@ import java.util.concurrent.Callable;
 
 import javax.annotation.Nullable;
 
+import brooklyn.location.paas.PaasContainerLocation;
+import brooklyn.location.paas.PaasLocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -137,7 +139,7 @@ public abstract class MachineLifecycleEffectorTasks {
             parameter(RestartSoftwareParameters.RESTART_MACHINE).
             impl(newRestartEffectorTask()).build();
     }
-    
+
     /** @see {@link #newStartEffector()} */
     public Effector<Void> newStopEffector() {
         return Effectors.effector(Startable.STOP).impl(newStopEffectorTask()).build();
@@ -219,8 +221,8 @@ public abstract class MachineLifecycleEffectorTasks {
             throw new IllegalArgumentException("Ambiguous locations detected when starting "+entity()+": "+locations);
         return Iterables.getOnlyElement(locations);
     }
-    
-    /** runs the tasks needed to start, wrapped by setting {@link Attributes#SERVICE_STATE_EXPECTED} appropriately */ 
+
+    /** runs the tasks needed to start, wrapped by setting {@link Attributes#SERVICE_STATE_EXPECTED} appropriately */
     public void start(Collection<? extends Location> locations) {
         ServiceStateLogic.setExpectedState(entity(), Lifecycle.STARTING);
         try {
@@ -238,6 +240,12 @@ public abstract class MachineLifecycleEffectorTasks {
         startInLocation(getLocation(locations));
     }
 
+
+    protected Map<String ,Object> obtainClientFlags(PaasLocation location){
+        return null;
+    }
+
+
     /** Dispatches to the appropriate method(s) to start in the given location. */
     protected void startInLocation(final Location location) {
         Supplier<MachineLocation> locationS = null;
@@ -246,7 +254,10 @@ public abstract class MachineLifecycleEffectorTasks {
             locationS = Tasks.supplier(machineTask);
         } else if (location instanceof MachineLocation) {
             locationS = Suppliers.ofInstance((MachineLocation)location);
+        } else if(location instanceof PaasLocation){
+            locationS=Suppliers.ofInstance(((MachineLocation)((PaasLocation) location).setUp(null)));
         }
+
         Preconditions.checkState(locationS != null, "Unsupported location "+location+", when starting "+entity());
 
         final Supplier<MachineLocation> locationSF = locationS;
@@ -454,7 +465,7 @@ public abstract class MachineLifecycleEffectorTasks {
     protected boolean getDefaultRestartStopsMachine() {
         return false;
     }
-    
+
     /**
      * Default restart implementation for an entity.
      * <p>
@@ -462,12 +473,12 @@ public abstract class MachineLifecycleEffectorTasks {
      */
     public void restart(ConfigBag parameters) {
         ServiceStateLogic.setExpectedState(entity(), Lifecycle.STOPPING);
-        
+
         RestartMachineMode isRestartMachine = parameters.get(RestartSoftwareParameters.RESTART_MACHINE_TYPED);
-        if (isRestartMachine==null) 
+        if (isRestartMachine==null)
             isRestartMachine=RestartMachineMode.AUTO;
-        if (isRestartMachine==RestartMachineMode.AUTO) 
-            isRestartMachine = getDefaultRestartStopsMachine() ? RestartMachineMode.TRUE : RestartMachineMode.FALSE; 
+        if (isRestartMachine==RestartMachineMode.AUTO)
+            isRestartMachine = getDefaultRestartStopsMachine() ? RestartMachineMode.TRUE : RestartMachineMode.FALSE;
 
         if (isRestartMachine==RestartMachineMode.FALSE) {
             DynamicTasks.queue("stopping (process)", new Callable<String>() { public String call() {
@@ -482,7 +493,7 @@ public abstract class MachineLifecycleEffectorTasks {
                 stop();
                 DynamicTasks.waitForLast();
                 return "Stop of machine completed with no errors.";
-            }});            
+            }});
         }
 
         DynamicTasks.queue("starting", new Runnable() { public void run() {
@@ -491,7 +502,7 @@ public abstract class MachineLifecycleEffectorTasks {
             ServiceStateLogic.setExpectedState(entity(), Lifecycle.STARTING);
             startInLocations(null);
         }});
-        
+
         restartChildren(parameters);
 
         DynamicTasks.waitForLast();
@@ -505,12 +516,12 @@ public abstract class MachineLifecycleEffectorTasks {
         if (isRestartChildren==null || !isRestartChildren) {
             return;
         }
-        
+
         if (isRestartChildren) {
             DynamicTasks.queue(StartableMethods.restartingChildren(entity(), parameters));
             return;
         }
-        
+
         throw new IllegalArgumentException("Invalid value '"+isRestartChildren+"' for "+RestartSoftwareParameters.RESTART_CHILDREN.getName());
     }
 
@@ -534,7 +545,7 @@ public abstract class MachineLifecycleEffectorTasks {
             preStopCustom();
             return null;
         }});
-        
+
         if (entity().getAttribute(SoftwareProcess.SERVICE_STATE_ACTUAL)==Lifecycle.STOPPED) {
             return;
         }
@@ -592,7 +603,7 @@ public abstract class MachineLifecycleEffectorTasks {
     protected void preStopCustom() {
         // nothing needed here
     }
-    
+
     protected void postStopCustom() {
         // nothing needed here
     }
